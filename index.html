@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>しゅがけストーキング — 路地</title>
+<style>
+/* ============================================================
+   しゅがけストーキング — 路地の画面
+
+   ハート3個。なくなったら GAME OVER。
+     ・子供にぶつかる      → ハート -1
+     ・男にぶつかる        → ハート -1、掴まる（連打でほどく）
+     ・女にぶつかる        → 叫ばれて、どこかの列に監視がつく
+     ・監視中の列に居続ける → 見つかってトウカの画面へ（即 GAME OVER の場所）
+     ・空き缶 / おにぎり   → スコア
+     ・マンホールに飛び込む → 次のステージへ
+   ============================================================ */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#000}
+body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-action:none}
+#screen{position:fixed;inset:0;width:100%;height:100%;display:block;
+  image-rendering:pixelated;image-rendering:crisp-edges}
+#devToggle{position:fixed;top:calc(6px + env(safe-area-inset-top));right:6px;z-index:3;
+  width:24px;height:24px;border:none;border-radius:6px;background:rgba(0,0,0,.25);
+  color:rgba(255,255,255,.45);font:13px/24px system-ui;text-align:center;cursor:pointer}
+#dev{position:fixed;top:calc(34px + env(safe-area-inset-top));right:6px;z-index:3;display:none;
+  flex-direction:column;gap:5px;padding:8px;background:rgba(0,0,0,.82);border-radius:8px}
+#dev.on{display:flex}
+#dev input,#dev button{font:600 11px/1.5 system-ui;color:#e8dce6;background:rgba(255,255,255,.09);
+  border:1px solid rgba(255,255,255,.16);border-radius:6px;padding:6px 9px;outline:none;cursor:pointer}
+#debug{font:9.5px/1.4 ui-monospace,Consolas,monospace;color:#9fe8c8;white-space:pre;margin:0}
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<button id="devToggle">≡</button>
+<div id="dev">
+  <input id="tSeed" placeholder="seed" spellcheck="false">
+  <button id="tDbg">DEBUG</button>
+  <pre id="debug"></pre>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   CONFIG
+   ============================================================ */
+const CONFIG = {
+  lanes: 5,
+  speed: 68,          // 一定。ミナリの走る速さは変わらない
+  ramp: 80,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
+  watchRamp: 55,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
+
+  hearts: 3,
+  invuln: 1.3,        // 被弾後の無敵（連続で溶けないように）
+
+  // 走っているだけで点が入る。粘るほどレートが上がる＝これが「粘る理由」
+  scoreRate: { far: 10, near: 55 },
+  score: { can: 30, rice: 150 },
+
+  // 歩いてくる連中だけが速くなる。落ちているアイテムは速くならない
+  enemySpeed: { far: 1.00, near: 1.70 },
+
+  watch: {
+    lifeFar: 6.0, lifeNear: 12.0,   // 監視が居座る秒数（粘るほど長い）
+    catch: 1.6,                     // 見られていられる秒数。超えると見つかる
+    cool: 0.9,                      // 監視外に出たとき、ゲージが戻る速さの倍率
+    // 監視列に報酬は無い。危険を冒して稼ぐのはトウカフェーズの役目で、路地は生存に徹する
+    // 女が叫んだときに一度に張られる列の数。終盤は5列＝逃げ場なし
+    perScreamFar: 1, perScreamNear: 5,
+  },
+
+  spawn: {
+    crowdGapFar: 1.00, crowdGapNear: 0.58,   // 人混みの間隔（時間で詰まる）
+    womanFar: 8.0, womanNear: 3.4,           // 秒
+    watchFar: 6.5, watchNear: 3.0,           // 秒。序盤から常に1列は監視がある（＝常に賭けられる）
+    itemDist: 210,                           // 距離ごと。歩かないので時間で速くならない
+    manholeDist: 820,
+  },
+
+  // 子供と男の違いは「迫ってくる速さ」だけ。どちらも触れたらハート -1
+  actors: {
+    kid:      { drift:-26, w: 9, h:13 },
+    man:      { drift:-46, w:11, h:18 },
+    woman:    { cross: 46, w:11, h:18 },
+    can:      { w: 7, h: 9 },
+    rice:     { w: 9, h: 8 },
+    manhole:  { w:24, h:13 },
+  },
+
+  player: { y:0.78, laneSpeed:16 },   // 後ろから来るものが無いので、前を広く見せる
+  hit:    { depth:13, cross:15 },
+  input:  { repeatDelay:0.30, repeatInterval:0.13 },
+  seed: null, debug: false,
+};
+
+/* 液晶パレット。濃淡4段のみ、中間色は持たない */
+const PAL = { bg:"#e8cfdd", off:"#dcbccf", dim:"#a8778f", ink:"#4a2338", warn:"#7d2b4e" };
+
+/* ============================================================
+   PATTERNS — 歩いてくる人だけ（アイテム・女・マンホールは別枠で湧かせる）
+   "." 空き / "k" 子供 / "m" 男
+   ※ 1タップ1列なので、2列ぶん動かないと避けられない配置を連続させない
+   ============================================================ */
+const PATTERNS = [
+  { len:210, rows:[ {t:0,cells:[".","k",".",".","."]}, {t:110,cells:[".",".",".","k","."]} ]},
+  { len:230, rows:[ {t:0,cells:["k",".",".",".","k"]}, {t:120,cells:[".",".","m",".","."]} ]},
+  { len:220, rows:[ {t:0,cells:[".",".","k",".","."]}, {t:130,cells:["k",".",".","k","."]} ]},
+  { len:250, rows:[ {t:0,cells:[".","m",".","k","."]}, {t:130,cells:["k",".",".",".","m"]} ]},
+  { len:240, rows:[ {t:0,cells:[".","m",".",".","."]}, {t:130,cells:[".","k",".","m","."]} ]},
+  { len:260, rows:[ {t:0,cells:["m",".","k",".","."]}, {t:140,cells:[".",".",".","k","m"]} ]},
+  { len:270, rows:[ {t:0,cells:["k",".",".","m","."]}, {t:140,cells:[".","m",".",".","k"]} ]},
+  { len:280, rows:[ {t:0,cells:["k","m",".","m","."]}, {t:150,cells:[".",".","k",".","m"]} ]},
+];
+/* 保証則: どの行にも必ず通れる列が1本ある */
+function validatePatterns(){
+  const bad=[];
+  PATTERNS.forEach((p,i)=>p.rows.forEach(r=>{
+    if(r.cells.length!==CONFIG.lanes) bad.push(`P${i} t=${r.t}: 列数 ${r.cells.length}`);
+    if(r.cells.every(c=>c!==".")) bad.push(`P${i} t=${r.t}: 全列閉塞`);
+  }));
+  if(bad.length) console.warn("[保証則]\n"+bad.join("\n"));
+  return bad;
+}
+
+/* ============================================================
+   小道具
+   ============================================================ */
+const hashSeed=s=>{let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;};
+const mulberry32=a=>()=>{a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);
+  t=(t+Math.imul(t^(t>>>7),61|t))^t;return ((t^(t>>>14))>>>0)/4294967296;};
+let rnd=mulberry32(1);
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+/* ============================================================
+   状態
+   ============================================================ */
+const S = {
+  scene:"title",            // title | play | over
+  t:0, score:0, dist:0,
+  hearts:CONFIG.hearts, invuln:0,
+  lane:2, laneF:2,
+  ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
+  nextItem:0, nextWoman:0, nextWatch:0, nextManhole:0,
+  shake:0, toasts:[], bang:0,
+  end:"", best:0, seed:"",
+};
+/** 混み具合 0..1。人の密度・敵の速さ・点の入りはここから */
+const dens  = () => clamp(S.t/CONFIG.ramp, 0, 1);
+/** 監視の激化 0..1。人混みより速く進む。路地を終わらせるのはこちら */
+const densW = () => clamp(S.t/CONFIG.watchRamp, 0, 1);
+const scoreRate  = () => lerp(CONFIG.scoreRate.far,  CONFIG.scoreRate.near,  dens());
+const enemySpeed = () => lerp(CONFIG.enemySpeed.far, CONFIG.enemySpeed.near, dens());
+function toast(txt){ S.toasts.push({txt,life:1.0}); if(S.toasts.length>3) S.toasts.shift(); }
+
+/* ------------------------------------------------------------
+   この画面の終わり方。別画面と接続するときはここだけ差し替える。
+     "manhole" → 次のステージへ（低リスク低リターン）
+     "touka"   → トウカの画面へ（高リスク高リターン。あちらは即 GAME OVER）
+     "hearts"  → ハートが尽きた。GAME OVER
+   ------------------------------------------------------------ */
+function finish(how){
+  S.end = how;
+  S.score = Math.floor(S.score);
+  S.best = Math.max(S.best, S.score);
+  try{ localStorage.setItem("sugake_alley_best", String(S.best)); }catch(e){}
+  S.scene = "over";
+}
+function damage(){
+  if(S.invuln>0) return false;
+  S.hearts--; S.invuln = CONFIG.invuln; S.shake = 4;
+  if(S.hearts<=0){ finish("hearts"); return true; }
+  return false;
+}
+
+/* ============================================================
+   出現
+   ============================================================ */
+const laneW=()=>VW/CONFIG.lanes;
+const laneX=lf=>laneW()*(lf+0.5);
+const add=(kind,at,lane,x,vx)=>S.ents.push({kind,at,lane,x,vx,dead:false});
+
+/** 歩いてくる人。時間が経つほど間隔が詰まる */
+function fillCrowd(){
+  const gap = lerp(CONFIG.spawn.crowdGapFar, CONFIG.spawn.crowdGapNear, dens());
+  while(S.cursor < S.dist + VH*1.7){
+    const p = PATTERNS[Math.floor(rnd()*PATTERNS.length)];
+    for(const row of p.rows) row.cells.forEach((c,i)=>{
+      if(c!==".") add(c==="k"?"kid":"man", S.cursor+row.t, i);
+    });
+    S.cursor += p.len*gap;
+  }
+}
+/** 落ちているもの。歩かないので、時間が経っても速くならない */
+function spawnItem(){
+  if(S.dist < S.nextItem) return;
+  add(rnd()<0.72?"can":"rice", S.dist+VH*1.2, Math.floor(rnd()*CONFIG.lanes));
+  S.nextItem = S.dist + CONFIG.spawn.itemDist*(0.7+rnd()*0.6);
+}
+function spawnWoman(){
+  if(S.t < S.nextWoman) return;
+  const L = rnd()<0.5;
+  add("woman", S.dist+VH*0.55, -1, L?-14:VW+14, (L?1:-1)*CONFIG.actors.woman.cross);
+  S.nextWoman = S.t + lerp(CONFIG.spawn.womanFar, CONFIG.spawn.womanNear, dens())*(0.75+rnd()*0.5);
+}
+function spawnManhole(){
+  if(S.dist < S.nextManhole) return;
+  add("manhole", S.dist+VH*1.15, Math.floor(rnd()*CONFIG.lanes));
+  S.nextManhole = S.dist + CONFIG.spawn.manholeDist;
+}
+const watched = lane => S.watches.some(w=>w.lane===lane);
+/** 一度に張られる列の数。終盤は 5 列＝全部塞がる */
+const perScream = () =>
+  clamp(Math.round(lerp(CONFIG.watch.perScreamFar, CONFIG.watch.perScreamNear, densW())), 1, CONFIG.lanes);
+
+/** 監視を n 列に張る。叫ばれたときはミナリのいる列から埋める */
+function addWatches(n, onPlayer){
+  const life = lerp(CONFIG.watch.lifeFar, CONFIG.watch.lifeNear, densW());
+  const free = [];
+  for(let l=0;l<CONFIG.lanes;l++) if(!watched(l)) free.push(l);
+  if(onPlayer && free.includes(S.lane)){
+    free.splice(free.indexOf(S.lane),1);
+    S.watches.push({lane:S.lane, life}); n--;
+  }
+  while(n-- > 0 && free.length){
+    S.watches.push({ lane: free.splice(Math.floor(rnd()*free.length),1)[0], life });
+  }
+}
+/** 叫ばれなくても、粘るほど監視は増えていく */
+function spawnWatch(){
+  if(S.t < S.nextWatch) return;
+  addWatches(1, false);
+  S.nextWatch = S.t + lerp(CONFIG.spawn.watchFar, CONFIG.spawn.watchNear, densW())*(0.8+rnd()*0.4);
+}
+
+/* ============================================================
+   入力
+   ============================================================ */
+const touch={down:false,x:0,y:0,dir:0,holdT:0,reps:0,showT:0};
+const edge={}, keys={left:false,right:false};
+function onDown(e){
+  const p=e.touches?e.touches[0]:e;
+  touch.down=true; touch.holdT=0; touch.reps=0; touch.showT=.4;
+  touch.x=p.clientX; touch.y=p.clientY;
+  if(S.scene!=="play"){ edge.start=true; return; }
+  const r=cv.getBoundingClientRect();
+  touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
+  edge[touch.dir<0?"left":"right"]=true;
+}
+function onMove(e){ if(!touch.down)return; const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; }
+function onUp(){ touch.down=false; touch.dir=0; }
+function holdRepeat(dt){
+  const R=CONFIG.input;
+  if(!touch.down||!touch.dir) return;
+  touch.holdT+=dt;
+  if(touch.holdT<R.repeatDelay) return;
+  const n=Math.floor((touch.holdT-R.repeatDelay)/R.repeatInterval);
+  if(n>touch.reps){ touch.reps=n; edge[touch.dir<0?"left":"right"]=true; }
+}
+const cv=document.getElementById("screen");
+cv.addEventListener("pointerdown",e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e);});
+cv.addEventListener("pointermove",e=>{e.preventDefault();onMove(e);});
+cv.addEventListener("pointerup",e=>{e.preventDefault();onUp();});
+cv.addEventListener("pointercancel",onUp);
+const KEYMAP={ArrowLeft:"left",ArrowRight:"right",KeyA:"left",KeyD:"right",Enter:"start",Space:"start"};
+addEventListener("keydown",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
+  if(n==="left"&&!keys.left){keys.left=true;edge.left=true;}
+  if(n==="right"&&!keys.right){keys.right=true;edge.right=true;}
+  if(n==="start")edge.start=true;});
+addEventListener("keyup",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
+  if(n==="left")keys.left=false; if(n==="right")keys.right=false;});
+
+/* ============================================================
+   更新
+   ============================================================ */
+function startRun(){
+  const raw=devSeed.value.trim();
+  const s = raw?hashSeed(raw):(CONFIG.seed??((Math.random()*4294967296)>>>0));
+  S.seed = raw||String(s);
+  rnd = mulberry32(s);
+  S.scene="play"; S.t=0; S.score=0; S.dist=0;
+  S.hearts=CONFIG.hearts; S.invuln=1.2;
+  S.lane=2; S.laneF=2;
+  S.ents=[]; S.watches=[]; S.seen=0; S.cursor=0; S.toasts=[]; S.shake=0; S.bang=0; S.end="";
+  S.nextItem=CONFIG.spawn.itemDist;
+  S.nextWoman=CONFIG.spawn.womanFar;
+  S.nextWatch=CONFIG.spawn.watchFar;
+  S.nextManhole=CONFIG.spawn.manholeDist*0.55;
+  fillCrowd();
+}
+function hits(e){
+  if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
+  return Math.abs(e.at-S.dist)<CONFIG.hit.depth && e.lane===S.lane;
+}
+
+/** 監視。見られている時間はミナリ側に1本。
+    列ごとに分けると、全列が監視されていても移り続けるだけで避けられてしまう */
+function updateWatches(dt){
+  for(const w of S.watches) w.life -= dt;
+  S.watches = S.watches.filter(w=>w.life>0);
+
+  if(watched(S.lane)) S.seen += dt;
+  else                S.seen = Math.max(0, S.seen - dt*CONFIG.watch.cool);
+
+  if(S.seen >= CONFIG.watch.catch){ S.bang=1; finish("touka"); return true; }
+  return false;
+}
+
+function updatePlay(dt){
+  holdRepeat(dt);
+  if(edge.left)  S.lane=clamp(S.lane-1,0,CONFIG.lanes-1);
+  if(edge.right) S.lane=clamp(S.lane+1,0,CONFIG.lanes-1);
+  S.laneF += (S.lane-S.laneF)*clamp(CONFIG.player.laneSpeed*dt,0,1);
+
+  S.dist += CONFIG.speed*dt;
+  // 生き延びているだけで点が入る。粘るほどレートが上がる＝長く生きた者が報われる
+  S.score += scoreRate()*dt;
+  S.invuln=Math.max(0,S.invuln-dt);
+  fillCrowd(); spawnItem(); spawnWoman(); spawnWatch(); spawnManhole();
+
+  if(updateWatches(dt)) return;   // 見つかった＝トウカの画面へ
+
+  const es=enemySpeed();
+  for(const e of S.ents){
+    if(e.dead) continue;
+    const A=CONFIG.actors[e.kind];
+    if(e.kind==="woman") e.x += e.vx*es*dt;
+    else if(A.drift)     e.at += A.drift*es*dt;   // 歩く連中だけ速くなる
+
+    if(!hits(e)) continue;
+
+    if(e.kind==="manhole") return finish("manhole");
+
+    if(e.kind==="can" || e.kind==="rice"){
+      e.dead=true;
+      const p = CONFIG.score[e.kind];
+      S.score += p; toast("+"+p);
+      continue;
+    }
+    if(S.invuln>0) continue;
+
+    if(e.kind==="woman"){ e.dead=true; const n=perScream(); addWatches(n,true);
+                          S.shake=4; toast(n>1?`叫ばれた x${n}`:"叫ばれた"); continue; }
+    if(e.kind==="kid" || e.kind==="man"){ e.dead=true; if(damage()) return; toast("ぶつかった"); continue; }
+  }
+
+  S.ents = S.ents.filter(e=>!e.dead && e.at>S.dist-VH*0.5 && e.at<S.dist+VH*2.4
+                            && !(e.kind==="woman"&&(e.x<-30||e.x>VW+30)));
+}
+function update(dt){
+  S.t+=dt;
+  S.shake=Math.max(0,S.shake-dt*8);
+  S.bang=Math.max(0,S.bang-dt*1.6);
+  touch.showT=Math.max(0,touch.showT-dt);
+  for(const t of S.toasts) t.life-=dt;
+  S.toasts=S.toasts.filter(t=>t.life>0);
+  if(S.scene!=="play"){ if(edge.start) startRun(); return; }
+  updatePlay(dt);
+}
+
+/* ============================================================
+   描画
+   ============================================================ */
+const ctx=cv.getContext("2d",{alpha:false});
+let VW=180, VH=320, playerY=0, lastW=0, lastH=0;
+const HUD_H=24;
+function resize(){
+  lastW=innerWidth; lastH=innerHeight;
+  const w=Math.max(1,innerWidth||1), h=Math.max(1,innerHeight||1);
+  const a=isFinite(w/h)?w/h:0.5625;
+  VW=Math.round(VH*clamp(a,0.42,0.80));
+  cv.width=VW; cv.height=VH;
+  ctx.imageSmoothingEnabled=false;
+  playerY=HUD_H+(VH-HUD_H)*CONFIG.player.y;
+}
+addEventListener("resize",resize);
+
+const px=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(x|0,y|0,w|0,h|0);};
+/** 楕円はドットで打つ。ctx.stroke は液晶にない中間色を作る */
+function ring(cx,cy,rx,ry,c,thick){
+  ctx.fillStyle=c;
+  const n=Math.max(14,Math.ceil(Math.max(rx,ry)*6.5));
+  for(let i=0;i<n;i++){const a=i/n*6.2832;
+    ctx.fillRect(Math.round(cx+Math.cos(a)*rx),Math.round(cy+Math.sin(a)*ry),thick||1,thick||1);}
+}
+const GLYPHS={
+  "0":"11111 10001 10001 10001 11111","1":"00100 01100 00100 00100 01110",
+  "2":"11111 00001 11111 10000 11111","3":"11111 00001 01111 00001 11111",
+  "4":"10001 10001 11111 00001 00001","5":"11111 10000 11111 00001 11111",
+  "6":"11111 10000 11111 10001 11111","7":"11111 00001 00010 00100 00100",
+  "8":"11111 10001 11111 10001 11111","9":"11111 10001 11111 00001 11111",
+  "-":"00000 00000 11111 00000 00000","+":"00000 00100 01110 00100 00000",
+  "!":"00100 00100 00100 00000 00100",
+  "A":"01110 10001 11111 10001 10001","B":"11110 10001 11110 10001 11110",
+  "C":"01111 10000 10000 10000 01111","D":"11110 10001 10001 10001 11110",
+  "E":"11111 10000 11110 10000 11111","F":"11111 10000 11110 10000 10000",
+  "G":"01111 10000 10011 10001 01111","H":"10001 10001 11111 10001 10001",
+  "I":"11111 00100 00100 00100 11111","K":"10001 10010 11100 10010 10001",
+  "L":"10000 10000 10000 10000 11111","M":"10001 11011 10101 10001 10001",
+  "N":"10001 11001 10101 10011 10001","O":"01110 10001 10001 10001 01110",
+  "P":"11110 10001 11110 10000 10000","R":"11110 10001 11110 10100 10011",
+  "S":"01111 10000 01110 00001 11110","T":"11111 00100 00100 00100 00100",
+  "U":"10001 10001 10001 10001 01110","V":"10001 10001 10001 01010 00100",
+  "W":"10001 10001 10101 11011 10001","X":"10001 01010 00100 01010 10001",
+  "Y":"10001 01010 00100 00100 00100","Z":"11111 00010 00100 01000 11111",
+  " ":"00000 00000 00000 00000 00000",
+};
+const tw=(s,sc=1)=>String(s).length*6*sc-sc;
+function text(str,x,y,c,sc=1){
+  let cx=x;
+  for(const ch of String(str).toUpperCase()){
+    const g=GLYPHS[ch];
+    if(g){const rows=g.split(" ");
+      for(let r=0;r<5;r++)for(let i=0;i<5;i++) if(rows[r][i]==="1") px(cx+i*sc,y+r*sc,sc,sc,c);}
+    cx+=6*sc;
+  }
+}
+const textC=(s,y,c,sc=1)=>text(s,Math.round((VW-tw(s,sc))/2),y,c,sc);
+const screenY = at => playerY-(at-S.dist);
+
+const HEART=["0110110","1111111","1111111","0111110","0011100","0001000"];
+function heart(x,y,c){
+  for(let r=0;r<6;r++) for(let i=0;i<7;i++) if(HEART[r][i]==="1") px(x+i,y+r,1,1,c);
+}
+function figure(cx,by,w,h,c,o){
+  o=o||{};
+  const hw=Math.round(w/2), hh=Math.round(h*0.32);
+  px(cx-hw,by-h+hh,w,h-hh,c);
+  px(cx-Math.round(w*0.3),by-h,Math.round(w*0.6),hh,c);
+  if(o.skirt) px(cx-hw-2,by-5,w+4,5,c);
+}
+function drawMinari(cx,by){
+  px(cx-5,by-15,10,15,PAL.ink);
+  px(cx-8,by-20,5,6,PAL.ink); px(cx+3,by-20,5,6,PAL.ink);
+  px(cx-2,by-12,4,2,PAL.bg);
+  px(cx-1,by-1,3,6,PAL.ink);
+}
+function drawActor(e){
+  const A=CONFIG.actors[e.kind], y=screenY(e.at);
+  if(y<HUD_H-28||y>VH+28) return;
+  const x = e.kind==="woman" ? e.x : laneX(e.lane);
+  switch(e.kind){
+    case "manhole": {
+      const bl=Math.floor(S.t*7)%2===0;
+      ring(x,y,A.w/2,A.h/2,bl?PAL.ink:PAL.dim,2);
+      ring(x,y,A.w/2-5,A.h/2-4,PAL.dim);
+      break;
+    }
+    case "can":                                   // 空き缶: 縦長
+      px(x-3,y-9,7,9,PAL.dim); px(x-3,y-9,7,1,PAL.ink); px(x-3,y-1,7,1,PAL.ink);
+      break;
+    case "rice":                                  // おにぎり: 三角＋海苔
+      for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+      px(x-3,y-3,6,3,PAL.ink);
+      break;
+    case "man":   figure(x,y,A.w,A.h,PAL.ink); break;
+    case "woman": figure(x,y,A.w,A.h,PAL.dim,{skirt:true}); break;
+    default:      figure(x,y,A.w,A.h,PAL.dim); break;   // 子供
+  }
+}
+
+/** 監視されている列。上端の目印＋列全体のハッチで示す */
+function drawWatches(){
+  const blink = Math.floor(S.t*6)%2===0;
+  for(const w of S.watches){
+    const x0=laneW()*w.lane, ww=laneW(), cx=x0+ww/2;
+    for(let y=HUD_H+2;y<VH;y+=6) px(x0+2,y,ww-4,1,PAL.off);
+    px(x0+1,HUD_H,1,VH-HUD_H,PAL.dim); px(x0+ww-2,HUD_H,1,VH-HUD_H,PAL.dim);
+    ring(cx,HUD_H+10,7,5,blink?PAL.ink:PAL.dim);          // 目
+    px(cx-2,HUD_H+8,4,4,PAL.ink);
+  }
+  // 全列が塞がったら、もう逃げ場がないことを明示する
+  if(S.watches.length>=CONFIG.lanes && blink) textC("NO WAY OUT",HUD_H+26,PAL.warn);
+}
+/** 見られている時間。ミナリの真上に1本だけ出す */
+function drawSeen(cx,by){
+  const k=clamp(S.seen/CONFIG.watch.catch,0,1);
+  if(k<=0) return;
+  const w=22, x=cx-w/2, y=by-30;
+  px(x-1,y-1,w+2,5,PAL.bg);
+  px(x,y,Math.round(w*k),3, k>0.6?PAL.warn:PAL.ink);
+  if(k>0.6 && Math.floor(S.t*12)%2===0) text("!",cx-2,y-9,PAL.warn);
+}
+
+function drawAlley(){
+  px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
+  const off=S.dist%26;
+  for(let y=HUD_H-26;y<VH+26;y+=26) px(0,y+off,VW,1,PAL.off);
+  for(let i=1;i<CONFIG.lanes;i++) px(laneW()*i,HUD_H,1,VH-HUD_H,PAL.off);
+  px(0,HUD_H,2,VH-HUD_H,PAL.dim); px(VW-2,HUD_H,2,VH-HUD_H,PAL.dim);
+
+  drawWatches();
+  for(const e of S.ents) if(!e.dead) drawActor(e);
+  if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinari(laneX(S.laneF),playerY);
+  drawSeen(laneX(S.laneF),playerY);
+
+  let ty=HUD_H+4;
+  for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
+  if(touch.down||touch.showT>0){
+    const r=cv.getBoundingClientRect();
+    ring((touch.x-r.left)/r.width*VW,(touch.y-r.top)/r.height*VH,8,8,PAL.dim);
+  }
+}
+function drawHUD(){
+  px(0,0,VW,HUD_H,PAL.off);
+  px(0,HUD_H-1,VW,1,PAL.dim);
+  text(String(Math.min(Math.floor(S.score),9999999)).padStart(6,"0"),4,3,PAL.ink);
+  // 毎秒いくら入っているか。生き延びるほど増えるので、粘る理由がそのまま見える
+  text("+"+Math.round(scoreRate()), 4, 12, PAL.dim);
+  for(let i=0;i<CONFIG.hearts;i++) heart(VW-4-(i+1)*9, 5, i<S.hearts?PAL.ink:PAL.bg);
+}
+function drawTitle(){
+  px(0,0,VW,VH,PAL.bg);
+  textC("SUGAKE",50,PAL.ink,2);
+  textC("STALKING",70,PAL.ink,2);
+  textC("ALLEY",94,PAL.dim);
+  drawMinari(VW/2,148);
+  for(let i=0;i<3;i++) heart(VW/2-13+i*9,160,PAL.ink);
+  px(Math.round(VW*.12),176,Math.round(VW*.76),1,PAL.off);
+  textC("TAP LEFT OR RIGHT",192,PAL.ink);
+  textC("TAKE CANS AND RICE",212,PAL.dim);
+  textC("DODGE KIDS AND MEN",224,PAL.dim);
+  textC("LEAVE WATCHED LANES",236,PAL.dim);
+  textC("MANHOLE  GO DOWN",252,PAL.dim);
+  if(Math.floor(S.t*2)%2===0) textC("TAP TO START",286,PAL.ink);
+  textC("BEST "+S.best,306,PAL.dim);
+}
+function drawOver(){
+  px(0,0,VW,VH,PAL.bg);
+  const head = S.end==="manhole" ? "STAGE CLEAR"
+             : S.end==="touka"   ? "SPOTTED !"
+             :                     "GAME OVER";
+  textC(head, 52, S.end==="manhole"?PAL.ink:PAL.warn);
+  if(S.end==="manhole"){ ring(VW/2,116,14,8,PAL.ink,2); textC("SEWER SCREEN",150,PAL.dim); }
+  else if(S.end==="touka"){ ring(VW/2,112,9,7,PAL.ink,2); px(VW/2-3,110,6,6,PAL.ink);
+                            textC("TOUKA SCREEN",150,PAL.dim); }
+  else { for(let i=0;i<3;i++) heart(VW/2-13+i*9,110,PAL.bg); textC("NO HEARTS LEFT",150,PAL.dim); }
+  if(S.end!=="hearts") textC("NOT BUILT YET",162,PAL.off);
+  [["SCORE",S.score],["BEST",S.best],["TIME",Math.round(S.t)]].forEach(([k,v],i)=>{
+    const y=200+i*18;
+    text(k,Math.round(VW*.18),y,PAL.dim);
+    text(String(v),VW-tw(String(v))-Math.round(VW*.18),y,PAL.ink);
+  });
+  if(Math.floor(S.t*2)%2===0) textC("TAP TO RETRY",278,PAL.ink);
+}
+function render(){
+  ctx.save();
+  if(S.shake>0.05){ const j=()=>Math.round((rnd()*2-1)*S.shake); ctx.translate(j(),j()); }
+  if(S.scene==="title") drawTitle();
+  else if(S.scene==="over") drawOver();
+  else { drawAlley(); drawHUD(); }
+  ctx.restore();
+}
+
+/* ============================================================
+   ループ
+   ============================================================ */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(innerWidth!==lastW||innerHeight!==lastH) resize();
+  update(dt); render(); updateDebug();
+  for(const k in edge) delete edge[k];
+  requestAnimationFrame(frame);
+}
+
+/* 開発用 */
+const devSeed=document.getElementById("tSeed"), dbg=document.getElementById("debug");
+document.getElementById("devToggle").onclick=()=>document.getElementById("dev").classList.toggle("on");
+document.getElementById("tDbg").onclick=()=>{CONFIG.debug=!CONFIG.debug;};
+function updateDebug(){
+  if(!CONFIG.debug){ if(dbg.textContent) dbg.textContent=""; return; }
+  const c={};
+  for(const e of S.ents) if(!e.dead) c[e.kind]=(c[e.kind]||0)+1;
+  dbg.textContent=
+`${S.scene} t${S.t.toFixed(1)} seed ${S.seed}
+HEART ${S.hearts}  kid ${(CONFIG.actors.kid.drift*enemySpeed()).toFixed(0)} / man ${(CONFIG.actors.man.drift*enemySpeed()).toFixed(0)} px/s
+DENS ${dens().toFixed(2)} gap x${lerp(CONFIG.spawn.crowdGapFar,CONFIG.spawn.crowdGapNear,dens()).toFixed(2)}
+RATE +${scoreRate().toFixed(0)}/s  enemy x${enemySpeed().toFixed(2)}
+WATCH ${S.watches.length}/${CONFIG.lanes} 列 [${S.watches.map(w=>w.lane).sort().join(",")||"-"}] 叫び=${perScream()}列 densW ${densW().toFixed(2)}
+SEEN  ${S.seen.toFixed(2)}/${CONFIG.watch.catch}
+SCORE ${S.score} dist ${S.dist.toFixed(0)}
+ENTS ${JSON.stringify(c)}  VIEW ${VW}x${VH}`;
+}
+
+try{ S.best=parseInt(localStorage.getItem("sugake_alley_best")||"0",10)||0; }catch(e){}
+validatePatterns();
+resize();
+rnd=mulberry32(hashSeed("boot"));
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
