@@ -67,8 +67,10 @@ const CONFIG = {
     catch: 1.6,                     // 見られていられる秒数。超えると見つかる
     cool: 0.9,                      // 監視外に出たとき、ゲージが戻る速さの倍率
     // 監視列に報酬は無い。危険を冒して稼ぐのはトウカフェーズの役目で、路地は生存に徹する
-    // 女が叫んだときに一度に張られる列の数。終盤は5列＝逃げ場なし
-    perScreamFar: 1, perScreamNear: 5,
+    // 女が叫んだときに一度に張られる列の数
+    perScreamFar: 1, perScreamNear: 4,
+    // 全列は塞がない。1列は必ず空ける＝難易度の問題であって理不尽にはしない
+    maxLanes: 4,
   },
 
   spawn: {
@@ -90,6 +92,10 @@ const CONFIG = {
   },
 
   player: { y:0.78, laneSpeed:16 },   // 後ろから来るものが無いので、前を広く見せる
+
+  // マンホールに飛び込んだあとの落下。ここだけがハートを取り戻せる場所。
+  // 捕まってトウカへ行くとこの画面を通らない＝安全な道を選んだ者だけが回復する
+  fall: { duration: 5.0, scroll: 155, gap: 135, y: 0.32 },
   hit:    { depth:13, cross:15 },
   input:  { repeatDelay:0.30, repeatInterval:0.13 },
   seed: null, debug: false,
@@ -138,8 +144,9 @@ const lerp=(a,b,t)=>a+(b-a)*t;
    状態
    ============================================================ */
 const S = {
-  scene:"title",            // title | play | over
-  t:0, score:0, dist:0,
+  scene:"title",            // title | play | falling | over
+  t:0, score:0, dist:0, stage:1,
+  fallT:0, fallDist:0, fallItems:[], healed:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -215,9 +222,13 @@ const watched = lane => S.watches.some(w=>w.lane===lane);
 const perScream = () =>
   clamp(Math.round(lerp(CONFIG.watch.perScreamFar, CONFIG.watch.perScreamNear, densW())), 1, CONFIG.lanes);
 
-/** 監視を n 列に張る。叫ばれたときはミナリのいる列から埋める */
+/** 監視を n 列に張る。叫ばれたときはミナリのいる列から埋める。
+    ただし maxLanes を超えて張らない＝必ず 1 列は逃げ道が残る */
 function addWatches(n, onPlayer){
   const life = lerp(CONFIG.watch.lifeFar, CONFIG.watch.lifeNear, densW());
+  const room = CONFIG.watch.maxLanes - S.watches.length;
+  if(room <= 0) return;
+  n = Math.min(n, room);
   const free = [];
   for(let l=0;l<CONFIG.lanes;l++) if(!watched(l)) free.push(l);
   if(onPlayer && free.includes(S.lane)){
@@ -275,20 +286,61 @@ addEventListener("keyup",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefaul
 /* ============================================================
    更新
    ============================================================ */
+/** 路地に入る。ステージをまたいでも t / score / hearts は引き継ぐ（難易度は上がり続ける） */
+function enterAlley(){
+  S.scene="play";
+  S.invuln=1.4; S.lane=2; S.laneF=2;
+  S.ents=[]; S.watches=[]; S.seen=0; S.cursor=S.dist;
+  S.nextItem=S.dist+CONFIG.spawn.itemDist;
+  S.nextWoman=S.t+CONFIG.spawn.womanFar*0.6;
+  S.nextWatch=S.t+CONFIG.spawn.watchFar;
+  S.nextManhole=S.dist+CONFIG.spawn.manholeDist*(S.stage===1?0.55:1);
+  fillCrowd();
+}
 function startRun(){
   const raw=devSeed.value.trim();
   const s = raw?hashSeed(raw):(CONFIG.seed??((Math.random()*4294967296)>>>0));
   S.seed = raw||String(s);
   rnd = mulberry32(s);
-  S.scene="play"; S.t=0; S.score=0; S.dist=0;
-  S.hearts=CONFIG.hearts; S.invuln=1.2;
-  S.lane=2; S.laneF=2;
-  S.ents=[]; S.watches=[]; S.seen=0; S.cursor=0; S.toasts=[]; S.shake=0; S.bang=0; S.end="";
-  S.nextItem=CONFIG.spawn.itemDist;
-  S.nextWoman=CONFIG.spawn.womanFar;
-  S.nextWatch=CONFIG.spawn.watchFar;
-  S.nextManhole=CONFIG.spawn.manholeDist*0.55;
-  fillCrowd();
+  S.t=0; S.score=0; S.dist=0; S.stage=1;
+  S.hearts=CONFIG.hearts;
+  S.toasts=[]; S.shake=0; S.bang=0; S.end="";
+  enterAlley();
+}
+
+/* ------------------------------------------------------------
+   落下 — マンホールに飛び込んだあと。おにぎりを拾ってハートを取り戻す
+   ------------------------------------------------------------ */
+function enterFall(){
+  S.scene="falling"; S.fallT=0; S.fallDist=0; S.healed=0;
+  S.lane=2; S.laneF=2; S.fallItems=[];
+  const total=CONFIG.fall.duration*CONFIG.fall.scroll;
+  let lane=2;
+  for(let at=CONFIG.fall.gap; at<total-40; at+=CONFIG.fall.gap){
+    // 前のおにぎりから 1〜3 列ずらす。全部は取れないが、狙えば届く距離に置く
+    const step=1+Math.floor(rnd()*3);
+    lane = clamp(lane + (rnd()<0.5?-step:step), 0, CONFIG.lanes-1);
+    S.fallItems.push({at, lane, dead:false});
+  }
+}
+function updateFall(dt){
+  holdRepeat(dt);
+  if(edge.left)  S.lane=clamp(S.lane-1,0,CONFIG.lanes-1);
+  if(edge.right) S.lane=clamp(S.lane+1,0,CONFIG.lanes-1);
+  S.laneF += (S.lane-S.laneF)*clamp(CONFIG.player.laneSpeed*dt,0,1);
+
+  S.fallT += dt;
+  S.fallDist += CONFIG.fall.scroll*dt;
+
+  for(const it of S.fallItems){
+    if(it.dead) continue;
+    if(Math.abs(it.at-S.fallDist)<CONFIG.hit.depth && it.lane===S.lane){
+      it.dead=true;
+      if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); }
+      else { S.score+=CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
+    }
+  }
+  if(S.fallT>=CONFIG.fall.duration){ S.stage++; enterAlley(); }
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -331,7 +383,7 @@ function updatePlay(dt){
 
     if(!hits(e)) continue;
 
-    if(e.kind==="manhole") return finish("manhole");
+    if(e.kind==="manhole") return enterFall();      // 飛び込む → 落下（回復の機会）
 
     if(e.kind==="can" || e.kind==="rice"){
       e.dead=true;
@@ -356,6 +408,7 @@ function update(dt){
   touch.showT=Math.max(0,touch.showT-dt);
   for(const t of S.toasts) t.life-=dt;
   S.toasts=S.toasts.filter(t=>t.life>0);
+  if(S.scene==="falling") return updateFall(dt);
   if(S.scene!=="play"){ if(edge.start) startRun(); return; }
   updatePlay(dt);
 }
@@ -471,8 +524,8 @@ function drawWatches(){
     ring(cx,HUD_H+10,7,5,blink?PAL.ink:PAL.dim);          // 目
     px(cx-2,HUD_H+8,4,4,PAL.ink);
   }
-  // 全列が塞がったら、もう逃げ場がないことを明示する
-  if(S.watches.length>=CONFIG.lanes && blink) textC("NO WAY OUT",HUD_H+26,PAL.warn);
+  // 逃げ道が1列しか残っていないことを明示する
+  if(S.watches.length>=CONFIG.watch.maxLanes && blink) textC("ONE WAY LEFT",HUD_H+26,PAL.warn);
 }
 /** 見られている時間。ミナリの真上に1本だけ出す */
 function drawSeen(cx,by){
@@ -503,12 +556,46 @@ function drawAlley(){
     ring((touch.x-r.left)/r.width*VW,(touch.y-r.top)/r.height*VH,8,8,PAL.dim);
   }
 }
+/** 落下。路地とは上下が逆で、おにぎりは下から昇ってくる */
+function drawFall(){
+  const fy = HUD_H+(VH-HUD_H)*CONFIG.fall.y;
+  px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
+  // 縦穴の壁。上へ流れる＝落ちている
+  const off = S.fallDist%22;
+  for(let y=VH+22; y>HUD_H-22; y-=22){
+    const yy=y-off;
+    px(0,yy,7,2,PAL.dim); px(VW-7,yy,7,2,PAL.dim);
+  }
+  px(0,HUD_H,4,VH-HUD_H,PAL.off); px(VW-4,HUD_H,4,VH-HUD_H,PAL.off);
+  for(let i=1;i<CONFIG.lanes;i++) px(laneW()*i,HUD_H,1,VH-HUD_H,PAL.off);
+
+  for(const it of S.fallItems){
+    if(it.dead) continue;
+    const y = fy + (it.at - S.fallDist);
+    if(y<HUD_H-16||y>VH+16) continue;
+    const x=laneX(it.lane), A=CONFIG.actors.rice;
+    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+    px(x-3,y-3,6,3,PAL.ink);
+  }
+  drawMinari(laneX(S.laneF), fy);
+
+  const left=Math.max(0,CONFIG.fall.duration-S.fallT);
+  textC("FALLING",HUD_H+8,PAL.dim);
+  textC(left.toFixed(1),HUD_H+18,PAL.ink);
+  let ty=VH-58;
+  for(const t of S.toasts){ textC(t.txt.slice(0,10),ty,PAL.ink); ty+=9; }
+  textC("SEWER NOT BUILT",VH-24,PAL.off);
+  textC("BACK TO ALLEY",VH-14,PAL.off);
+}
+
 function drawHUD(){
   px(0,0,VW,HUD_H,PAL.off);
   px(0,HUD_H-1,VW,1,PAL.dim);
   text(String(Math.min(Math.floor(S.score),9999999)).padStart(6,"0"),4,3,PAL.ink);
   // 毎秒いくら入っているか。生き延びるほど増えるので、粘る理由がそのまま見える
   text("+"+Math.round(scoreRate()), 4, 12, PAL.dim);
+  const st="ST"+S.stage;
+  text(st, Math.round((VW-tw(st))/2), 12, PAL.dim);
   for(let i=0;i<CONFIG.hearts;i++) heart(VW-4-(i+1)*9, 5, i<S.hearts?PAL.ink:PAL.bg);
 }
 function drawTitle(){
@@ -523,33 +610,37 @@ function drawTitle(){
   textC("TAKE CANS AND RICE",212,PAL.dim);
   textC("DODGE KIDS AND MEN",224,PAL.dim);
   textC("LEAVE WATCHED LANES",236,PAL.dim);
-  textC("MANHOLE  GO DOWN",252,PAL.dim);
+  textC("MANHOLE TO ESCAPE",252,PAL.dim);
+  textC("CATCH RICE TO HEAL",264,PAL.dim);
   if(Math.floor(S.t*2)%2===0) textC("TAP TO START",286,PAL.ink);
   textC("BEST "+S.best,306,PAL.dim);
 }
 function drawOver(){
   px(0,0,VW,VH,PAL.bg);
-  const head = S.end==="manhole" ? "STAGE CLEAR"
-             : S.end==="touka"   ? "SPOTTED !"
-             :                     "GAME OVER";
-  textC(head, 52, S.end==="manhole"?PAL.ink:PAL.warn);
-  if(S.end==="manhole"){ ring(VW/2,116,14,8,PAL.ink,2); textC("SEWER SCREEN",150,PAL.dim); }
-  else if(S.end==="touka"){ ring(VW/2,112,9,7,PAL.ink,2); px(VW/2-3,110,6,6,PAL.ink);
-                            textC("TOUKA SCREEN",150,PAL.dim); }
-  else { for(let i=0;i<3;i++) heart(VW/2-13+i*9,110,PAL.bg); textC("NO HEARTS LEFT",150,PAL.dim); }
-  if(S.end!=="hearts") textC("NOT BUILT YET",162,PAL.off);
-  [["SCORE",S.score],["BEST",S.best],["TIME",Math.round(S.t)]].forEach(([k,v],i)=>{
-    const y=200+i*18;
+  const spotted = S.end==="touka";
+  textC(spotted?"SPOTTED !":"GAME OVER", 52, PAL.warn);
+  if(spotted){
+    ring(VW/2,112,9,7,PAL.ink,2); px(VW/2-3,110,6,6,PAL.ink);
+    textC("TOUKA SCREEN",150,PAL.dim); textC("NOT BUILT YET",162,PAL.off);
+  } else {
+    for(let i=0;i<CONFIG.hearts;i++) heart(VW/2-13+i*9,110,PAL.bg);
+    textC("NO HEARTS LEFT",150,PAL.dim);
+  }
+  [["SCORE",S.score],["BEST",S.best],["STAGE",S.stage],["TIME",Math.round(S.t)]].forEach(([k,v],i)=>{
+    const y=190+i*16;
     text(k,Math.round(VW*.18),y,PAL.dim);
     text(String(v),VW-tw(String(v))-Math.round(VW*.18),y,PAL.ink);
   });
   if(Math.floor(S.t*2)%2===0) textC("TAP TO RETRY",278,PAL.ink);
 }
 function render(){
+  // 揺らすとずれたぶん画面端が塗り残る。先に全面を下地で埋めておく
+  px(0,0,VW,VH,PAL.bg);
   ctx.save();
   if(S.shake>0.05){ const j=()=>Math.round((rnd()*2-1)*S.shake); ctx.translate(j(),j()); }
   if(S.scene==="title") drawTitle();
   else if(S.scene==="over") drawOver();
+  else if(S.scene==="falling"){ drawFall(); drawHUD(); }
   else { drawAlley(); drawHUD(); }
   ctx.restore();
 }
