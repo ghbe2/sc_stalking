@@ -37,6 +37,8 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <button id="devToggle">≡</button>
 <div id="dev">
   <input id="tSeed" placeholder="seed" spellcheck="false">
+  <button id="tStage">開始ステージ: 1</button>
+  <button id="tFall">落下を見る</button>
   <button id="tDbg">DEBUG</button>
   <pre id="debug"></pre>
 </div>
@@ -79,6 +81,7 @@ const CONFIG = {
     watchFar: 6.5, watchNear: 3.0,           // 秒。序盤から常に1列は監視がある（＝常に賭けられる）
     itemDist: 210,                           // 距離ごと。歩かないので時間で速くならない
     manholeDist: 820,
+    grace: 95,                               // 開幕はこのぶん誰も来ない（約1秒）
   },
 
   // 子供と男の違いは「迫ってくる速さ」だけ。どちらも触れたらハート -1
@@ -95,7 +98,13 @@ const CONFIG = {
 
   // マンホールに飛び込んだあとの落下。ここだけがハートを取り戻せる場所。
   // 捕まってトウカへ行くとこの画面を通らない＝安全な道を選んだ者だけが回復する
-  fall: { duration: 5.0, scroll: 155, gap: 135, y: 0.32 },
+  // 落下中はレーンを使わず、押している方向へ緩慢に流れる。1個も取れないこともある
+  fall: {
+    duration: 5.0, scroll: 155, gap: 128, y: 0.32,
+    accel: 190, maxVX: 58, drag: 2.2, catchR: 11,
+  },
+
+  stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
   hit:    { depth:13, cross:15 },
   input:  { repeatDelay:0.30, repeatInterval:0.13 },
   seed: null, debug: false,
@@ -145,8 +154,8 @@ const lerp=(a,b,t)=>a+(b-a)*t;
    ============================================================ */
 const S = {
   scene:"title",            // title | play | falling | over
-  t:0, score:0, dist:0, stage:1,
-  fallT:0, fallDist:0, fallItems:[], healed:0,
+  t:0, score:0, dist:0, stage:1, startStage:1,
+  fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -255,10 +264,11 @@ function onDown(e){
   const p=e.touches?e.touches[0]:e;
   touch.down=true; touch.holdT=0; touch.reps=0; touch.showT=.4;
   touch.x=p.clientX; touch.y=p.clientY;
-  if(S.scene!=="play"){ edge.start=true; return; }
+  if(S.scene==="title"||S.scene==="over"){ edge.start=true; return; }
   const r=cv.getBoundingClientRect();
   touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
-  edge[touch.dir<0?"left":"right"]=true;
+  // 路地は 1 タップ 1 列。落下は touch.dir を押しっぱなしで使うので edge は立てない
+  if(S.scene==="play") edge[touch.dir<0?"left":"right"]=true;
 }
 function onMove(e){ if(!touch.down)return; const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; }
 function onUp(){ touch.down=false; touch.dir=0; }
@@ -290,7 +300,9 @@ addEventListener("keyup",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefaul
 function enterAlley(){
   S.scene="play";
   S.invuln=1.4; S.lane=2; S.laneF=2;
-  S.ents=[]; S.watches=[]; S.seen=0; S.cursor=S.dist;
+  S.ents=[]; S.watches=[]; S.seen=0;
+  // 画面の外＋1秒ぶん先から湧かせる。開幕にいきなり目の前へ現れないように
+  S.cursor = S.dist + (playerY-HUD_H) + CONFIG.spawn.grace;
   S.nextItem=S.dist+CONFIG.spawn.itemDist;
   S.nextWoman=S.t+CONFIG.spawn.womanFar*0.6;
   S.nextWatch=S.t+CONFIG.spawn.watchFar;
@@ -302,7 +314,9 @@ function startRun(){
   const s = raw?hashSeed(raw):(CONFIG.seed??((Math.random()*4294967296)>>>0));
   S.seed = raw||String(s);
   rnd = mulberry32(s);
-  S.t=0; S.score=0; S.dist=0; S.stage=1;
+  S.stage=Math.max(1,S.startStage);
+  S.t=(S.stage-1)*CONFIG.stageTime;   // デバッグでステージを飛ばしたら難易度も合わせる
+  S.score=0; S.dist=0;
   S.hearts=CONFIG.hearts;
   S.toasts=[]; S.shake=0; S.bang=0; S.end="";
   enterAlley();
@@ -313,34 +327,39 @@ function startRun(){
    ------------------------------------------------------------ */
 function enterFall(){
   S.scene="falling"; S.fallT=0; S.fallDist=0; S.healed=0;
-  S.lane=2; S.laneF=2; S.fallItems=[];
+  S.fallX=VW/2; S.fallVX=0; S.fallItems=[];
   const total=CONFIG.fall.duration*CONFIG.fall.scroll;
-  let lane=2;
+  const M=18;
   for(let at=CONFIG.fall.gap; at<total-40; at+=CONFIG.fall.gap){
-    // 前のおにぎりから 1〜3 列ずらす。全部は取れないが、狙えば届く距離に置く
-    const step=1+Math.floor(rnd()*3);
-    lane = clamp(lane + (rnd()<0.5?-step:step), 0, CONFIG.lanes-1);
-    S.fallItems.push({at, lane, dead:false});
+    S.fallItems.push({ at, x: M+rnd()*(VW-M*2), dead:false });   // 位置は完全にランダム
   }
 }
+/** 落下はレーンを使わない。押している方向へ緩慢に流れるだけ */
 function updateFall(dt){
-  holdRepeat(dt);
-  if(edge.left)  S.lane=clamp(S.lane-1,0,CONFIG.lanes-1);
-  if(edge.right) S.lane=clamp(S.lane+1,0,CONFIG.lanes-1);
-  S.laneF += (S.lane-S.laneF)*clamp(CONFIG.player.laneSpeed*dt,0,1);
+  const F=CONFIG.fall;
+  let dir=0;
+  if(touch.down) dir=touch.dir;
+  if(keys.left)  dir=-1;
+  if(keys.right) dir= 1;
+
+  S.fallVX += dir*F.accel*dt;
+  S.fallVX -= S.fallVX*F.drag*dt;                    // 手を離しても止まりきらない
+  S.fallVX = clamp(S.fallVX, -F.maxVX, F.maxVX);
+  S.fallX = clamp(S.fallX + S.fallVX*dt, 10, VW-10);
+  if(S.fallX<=10 || S.fallX>=VW-10) S.fallVX=0;
 
   S.fallT += dt;
-  S.fallDist += CONFIG.fall.scroll*dt;
+  S.fallDist += F.scroll*dt;
 
   for(const it of S.fallItems){
     if(it.dead) continue;
-    if(Math.abs(it.at-S.fallDist)<CONFIG.hit.depth && it.lane===S.lane){
+    if(Math.abs(it.at-S.fallDist)<CONFIG.hit.depth && Math.abs(it.x-S.fallX)<F.catchR){
       it.dead=true;
       if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); }
       else { S.score+=CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
     }
   }
-  if(S.fallT>=CONFIG.fall.duration){ S.stage++; enterAlley(); }
+  if(S.fallT>=F.duration){ S.stage++; enterAlley(); }
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -514,27 +533,15 @@ function drawActor(e){
   }
 }
 
-/** 監視されている列。上端の目印＋列全体のハッチで示す */
+/** 監視されている列。画面の下端に小さな目を出すだけ。
+    列を塗らず、ゲージも出さない ＝ 気づけなかったらアウト */
 function drawWatches(){
   const blink = Math.floor(S.t*6)%2===0;
   for(const w of S.watches){
-    const x0=laneW()*w.lane, ww=laneW(), cx=x0+ww/2;
-    for(let y=HUD_H+2;y<VH;y+=6) px(x0+2,y,ww-4,1,PAL.off);
-    px(x0+1,HUD_H,1,VH-HUD_H,PAL.dim); px(x0+ww-2,HUD_H,1,VH-HUD_H,PAL.dim);
-    ring(cx,HUD_H+10,7,5,blink?PAL.ink:PAL.dim);          // 目
-    px(cx-2,HUD_H+8,4,4,PAL.ink);
+    const cx=laneX(w.lane), cy=VH-11;
+    ring(cx,cy,7,5,blink?PAL.ink:PAL.dim);
+    px(cx-2,cy-2,4,4,PAL.ink);
   }
-  // 逃げ道が1列しか残っていないことを明示する
-  if(S.watches.length>=CONFIG.watch.maxLanes && blink) textC("ONE WAY LEFT",HUD_H+26,PAL.warn);
-}
-/** 見られている時間。ミナリの真上に1本だけ出す */
-function drawSeen(cx,by){
-  const k=clamp(S.seen/CONFIG.watch.catch,0,1);
-  if(k<=0) return;
-  const w=22, x=cx-w/2, y=by-30;
-  px(x-1,y-1,w+2,5,PAL.bg);
-  px(x,y,Math.round(w*k),3, k>0.6?PAL.warn:PAL.ink);
-  if(k>0.6 && Math.floor(S.t*12)%2===0) text("!",cx-2,y-9,PAL.warn);
 }
 
 function drawAlley(){
@@ -547,7 +554,6 @@ function drawAlley(){
   drawWatches();
   for(const e of S.ents) if(!e.dead) drawActor(e);
   if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinari(laneX(S.laneF),playerY);
-  drawSeen(laneX(S.laneF),playerY);
 
   let ty=HUD_H+4;
   for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
@@ -567,17 +573,16 @@ function drawFall(){
     px(0,yy,7,2,PAL.dim); px(VW-7,yy,7,2,PAL.dim);
   }
   px(0,HUD_H,4,VH-HUD_H,PAL.off); px(VW-4,HUD_H,4,VH-HUD_H,PAL.off);
-  for(let i=1;i<CONFIG.lanes;i++) px(laneW()*i,HUD_H,1,VH-HUD_H,PAL.off);
 
   for(const it of S.fallItems){
     if(it.dead) continue;
     const y = fy + (it.at - S.fallDist);
     if(y<HUD_H-16||y>VH+16) continue;
-    const x=laneX(it.lane), A=CONFIG.actors.rice;
+    const x=it.x;
     for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
     px(x-3,y-3,6,3,PAL.ink);
   }
-  drawMinari(laneX(S.laneF), fy);
+  drawMinari(S.fallX, fy);
 
   const left=Math.max(0,CONFIG.fall.duration-S.fallT);
   textC("FALLING",HUD_H+8,PAL.dim);
@@ -613,6 +618,7 @@ function drawTitle(){
   textC("MANHOLE TO ESCAPE",252,PAL.dim);
   textC("CATCH RICE TO HEAL",264,PAL.dim);
   if(Math.floor(S.t*2)%2===0) textC("TAP TO START",286,PAL.ink);
+  if(S.startStage>1) textC("DEBUG  START AT ST"+S.startStage,296,PAL.warn);
   textC("BEST "+S.best,306,PAL.dim);
 }
 function drawOver(){
@@ -661,6 +667,16 @@ function frame(now){
 const devSeed=document.getElementById("tSeed"), dbg=document.getElementById("debug");
 document.getElementById("devToggle").onclick=()=>document.getElementById("dev").classList.toggle("on");
 document.getElementById("tDbg").onclick=()=>{CONFIG.debug=!CONFIG.debug;};
+// デバッグ: 開始ステージを選ぶ。難易度（通算時間）もそのぶん進めた状態で始まる
+const tStage=document.getElementById("tStage");
+tStage.onclick=()=>{
+  S.startStage = S.startStage>=8 ? 1 : S.startStage+1;
+  tStage.textContent = "開始ステージ: "+S.startStage;
+};
+document.getElementById("tFall").onclick=()=>{
+  if(S.scene==="title"||S.scene==="over") startRun();
+  enterFall();
+};
 function updateDebug(){
   if(!CONFIG.debug){ if(dbg.textContent) dbg.textContent=""; return; }
   const c={};
