@@ -47,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812C";
+const BUILD = "0812D";
 
 /* ============================================================
    CONFIG
@@ -69,7 +69,7 @@ const CONFIG = {
   enemySpeed: { far: 1.00, near: 1.70 },
 
   watch: {
-    lifeFar: 6.0, lifeNear: 12.0,   // 監視が居座る秒数（粘るほど長い）
+    lifeFar: 3.0, lifeNear: 6.0,    // 監視が居座る秒数（粘るほど長い）
     catch: 1.6,                     // 見られていられる秒数。超えると見つかる
     cool: 0.9,                      // 監視外に出たとき、ゲージが戻る速さの倍率
     // 監視列に報酬は無い。危険を冒して稼ぐのはトウカフェーズの役目で、路地は生存に徹する
@@ -117,8 +117,18 @@ const CONFIG = {
     playerX: 0.26,          // 画面幅に対する立ち位置。前を広く見せる
     groundY: 0.74,          // プレイ領域に対する地面の高さ
     standH: 15, crouchH: 8, bodyW: 10,
-    batY: 14, batH: 13, batW: 11,   // batY = 地面から蝙蝠の下端までの高さ
-    exitDist: 1500,
+
+    // 蝙蝠は群れ。跳んでも上を抜けられない高さまで積むので、しゃがむしかない
+    batY: 14, batW: 11, batH: 13, batN: 5, batGap: 16,
+
+    // はしご＝脱出。天井から下がっていて、跳ばないと届かない＝自分の意思で選ぶ
+    ladderDist: 540, ladderY: 30, ladderW: 15,
+
+    // 着地の振動でトウカに感知される。大きく跳ぶほど重い
+    noiseMax: 100, noiseMin: 5, noiseHeavy: 26, noiseDecay: 6.5,
+
+    ramp: 2200,             // この距離をかけて下水そのものが難しくなる
+    speedUp: 0.30,          // 最奥での速度の伸び
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -150,22 +160,33 @@ const PATTERNS = [
    穴は跳んで越え、蝙蝠はしゃがんで（または大きく跳んで）かわす
    ============================================================ */
 const SEWER = [
-  { len:220, gaps:[[130,28]],                 bats:[] },        // ただの穴
-  { len:240, gaps:[],                         bats:[120] },     // ただの蝙蝠
-  { len:270, gaps:[[145,42]],                 bats:[] },        // 広い穴。大きく溜める
-  { len:290, gaps:[[85,26],[190,26]],         bats:[] },        // 連続する小穴
-  { len:310, gaps:[[180,34]],                 bats:[70] },      // 蝙蝠→穴。溜めがそのまま活きる
-  { len:310, gaps:[[80,30]],                  bats:[200] },     // 穴→蝙蝠。跳んだ直後に伏せる
-  { len:340, gaps:[[110,24],[186,24],[262,24]], bats:[] },      // 三連
-  { len:360, gaps:[[155,46]],                 bats:[60,268] },  // 蝙蝠→広い穴→蝙蝠
+  { d:1, len:220, gaps:[[130,28]],                 bats:[] },        // ただの穴
+  { d:1, len:240, gaps:[],                         bats:[120] },     // ただの蝙蝠
+  { d:1, len:250, gaps:[[120,24]],                 bats:[] },
+  { d:2, len:270, gaps:[[145,42]],                 bats:[] },        // 広い穴。大きく溜める
+  { d:2, len:290, gaps:[[85,26],[190,26]],         bats:[] },        // 連続する小穴
+  { d:2, len:310, gaps:[[180,34]],                 bats:[70] },      // 蝙蝠→穴。溜めが活きる
+  { d:3, len:310, gaps:[[80,30]],                  bats:[200] },     // 穴→蝙蝠。着地して伏せ直す
+  { d:3, len:340, gaps:[[110,24],[186,24],[262,24]], bats:[] },      // 三連
+  { d:3, len:360, gaps:[[155,46]],                 bats:[60,268] },  // 蝙蝠→広い穴→蝙蝠
+  { d:4, len:380, gaps:[[95,30],[205,38]],         bats:[300] },
+  { d:4, len:400, gaps:[[150,44]],                 bats:[60,240,320] },
 ];
 
 /* 保証則: 穴は跳べる幅で、踏み切りと着地の足場がある */
 function validateSewer(){
   const S_=CONFIG.sewer;
   const air = 2*S_.maxJump/S_.gravity;          // 最大溜めの滞空時間
-  const reach = air*S_.speed;                   // 跳べる距離
+  const reach = air*S_.speed;                   // 跳べる距離（最奥では速くなるぶん伸びる）
   const bad=[];
+  // 蝙蝠の群れは、最大溜めで跳んでも抜けられない高さであること
+  const apex = S_.maxJump*S_.maxJump/(2*S_.gravity);
+  const batTop = S_.batY + S_.batH + (S_.batN-1)*S_.batGap;
+  if(batTop < apex + S_.standH + 4)
+    bad.push(`蝙蝠の群れが低い（上端${batTop}px / 跳ぶと頭が${(apex+S_.standH).toFixed(0)}px）`);
+  // はしごは跳ばないと届かず、最大溜めなら届くこと
+  if(S_.ladderY <= S_.standH) bad.push("はしごが低い（走っているだけで届く）");
+  if(S_.ladderY > apex + S_.standH) bad.push("はしごが高い（最大溜めでも届かない）");
   SEWER.forEach((p,i)=>{
     const gs=[...p.gaps].sort((a,b)=>a[0]-b[0]);
     gs.forEach(([x,w],k)=>{
@@ -209,7 +230,7 @@ const S = {
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
-  swGaps:[], swBats:[], swCursor:0, swDrop:0,
+  swGaps:[], swBats:[], swLadders:[], swCursor:0, swNoise:0, swNextLadder:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -423,21 +444,40 @@ function updateFall(dt){
      押しっぱなし = しゃがむ（＋ジャンプを溜める） / 放す = 溜めたぶん跳ぶ
    しゃがみ続ければ必ず跳ぶことになるので、いつ放すかがそのまま判断になる
    ------------------------------------------------------------ */
+/** 下水の深さ 0..1。潜るほど地形が険しくなる */
+const swHeat = () => clamp(S.swDist/CONFIG.sewer.ramp, 0, 1);
+const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.20+swHeat()*CONFIG.sewer.speedUp);
+const overGap = x => S.swGaps.some(g=>x>g.x0 && x<g.x1);
+
 function fillSewer(){
+  const tier = 1 + swHeat()*3;
   while(S.swCursor < S.swDist + VW*2.4){
-    const p=SEWER[Math.floor(rnd()*SEWER.length)];
+    const pool = SEWER.filter(p=>p.d<=Math.ceil(tier));
+    const p = pool[Math.floor(rnd()*pool.length)];
     for(const g of p.gaps) S.swGaps.push({x0:S.swCursor+g[0], x1:S.swCursor+g[0]+g[1]});
     for(const x of p.bats) S.swBats.push({x:S.swCursor+x, dead:false});
     S.swCursor += p.len;
   }
+  // はしごは一定距離ごと。前後に穴が無い平地にだけ置く。
+  // そうしないと、穴を越えるための跳躍で事故的に掴んでしまい「自分で選んだ脱出」にならない
+  // 穴からも蝙蝠からも離れた平地。そこでの跳躍は「掴みに行った」以外にありえない
+  const clear = x => {
+    for(let d=-70; d<=70; d+=6) if(overGap(x+d)) return false;
+    return !S.swBats.some(b=>Math.abs(b.x-x)<80);
+  };
+  while(S.swNextLadder < S.swDist + VW*2.2){
+    let x=S.swNextLadder;
+    for(let i=0;i<60 && !clear(x);i++) x+=12;
+    S.swLadders.push({x, dead:false});
+    S.swNextLadder = x + CONFIG.sewer.ladderDist;
+  }
 }
-const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.35);
-const overGap = x => S.swGaps.some(g=>x>g.x0 && x<g.x1);
 
 function enterSewer(){
   S.scene="sewer";
   S.swDist=0; S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0; S.swHeld=false;
-  S.swGaps=[]; S.swBats=[]; S.swCursor=0; S.swDrop=0; S.invuln=1.0;
+  S.swGaps=[]; S.swBats=[]; S.swLadders=[]; S.swCursor=0; S.swNoise=0;
+  S.swNextLadder=CONFIG.sewer.ladderDist*0.8; S.invuln=1.0;
   fillSewer();
 }
 function updateSewer(dt){
@@ -447,6 +487,9 @@ function updateSewer(dt){
   S.swDist += swSpeed()*dt;
   S.invuln = Math.max(0,S.invuln-dt);
   fillSewer();
+
+  // 地面に足がついている間だけ、振動は静まっていく
+  if(S.swGround) S.swNoise = Math.max(0, S.swNoise - C.noiseDecay*dt);
 
   if(S.swGround){
     if(held) S.swCharge = Math.min(C.maxCharge, S.swCharge+dt);
@@ -459,9 +502,19 @@ function updateSewer(dt){
   } else {
     S.swVY -= C.gravity*dt;
     S.swY  += S.swVY*dt;
-    if(S.swY<=0 && !overGap(S.swDist)){ S.swY=0; S.swVY=0; S.swGround=true; }
+    if(S.swY<=0 && !overGap(S.swDist)){
+      // 着地 = 振動。落ちてきた勢いが大きいほど重く響く（＝大きく溜めたぶんだけ高くつく）
+      // 溜めなしの跳躍を 0、最大溜めを 1 とする。小さく跳べば静か
+      const impact = clamp((-S.swVY - C.minJump)/(C.maxJump - C.minJump), 0, 1);
+      S.swNoise = Math.min(C.noiseMax, S.swNoise + lerp(C.noiseMin, C.noiseHeavy, impact));
+      S.swY=0; S.swVY=0; S.swGround=true;
+      if(impact>0.55) S.shake=Math.max(S.shake,2.2);
+    }
   }
   S.swHeld = held;
+
+  // 振動が積もりきると、トウカに位置を掴まれる
+  if(S.swNoise >= C.noiseMax) return finish("touka");
 
   // 水に落ちた
   if(S.swY < -34){
@@ -472,22 +525,29 @@ function updateSewer(dt){
     S.invuln=Math.max(S.invuln,1.2); S.shake=4; toast("落ちた");
   }
 
-  // 蝙蝠。しゃがめば下を通せるし、大きく跳べば上も抜けられる
+  // 蝙蝠は群れ。跳んでも上は抜けられないので、しゃがむしかない
   const h = (S.swGround && held) ? C.crouchH : C.standH;
+  const batTop = C.batY + C.batH + (C.batN-1)*C.batGap;
   for(const b of S.swBats){
     if(b.dead || S.invuln>0) continue;
     if(Math.abs(b.x-S.swDist) > (C.bodyW+C.batW)/2) continue;
-    if(S.swY < C.batY+C.batH && S.swY+h > C.batY){
+    if(S.swY < batTop && S.swY+h > C.batY){
       b.dead=true;
       if(damage()) return;
       toast("蝙蝠");
     }
   }
 
-  S.swGaps = S.swGaps.filter(g=>g.x1 > S.swDist-VW);
-  S.swBats = S.swBats.filter(b=>!b.dead && b.x > S.swDist-VW);
+  // はしごは天井から下がっている。跳んで掴めば地上へ＝抜けるかどうかは自分で決める
+  for(const L of S.swLadders){
+    if(L.dead) continue;
+    if(Math.abs(L.x-S.swDist) > (C.bodyW+C.ladderW)/2) continue;
+    if(S.swY+h >= C.ladderY){ L.dead=true; S.stage++; return enterAlley(); }
+  }
 
-  if(S.swDist >= C.exitDist){ S.stage++; enterAlley(); }
+  S.swGaps    = S.swGaps.filter(g=>g.x1 > S.swDist-VW);
+  S.swBats    = S.swBats.filter(b=>!b.dead && b.x > S.swDist-VW);
+  S.swLadders = S.swLadders.filter(L=>!L.dead && L.x > S.swDist-VW);
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -769,20 +829,28 @@ function drawSewerScene(){
       px(x0+2+o,y,Math.max(0,x1-x0-4),1,PAL.dim);
     }
   }
-  // 出口のはしご
-  const ex=toScreen(C.exitDist);
-  if(ex<VW+24 && ex>-24){
-    px(ex,HUD_H+6,1,gy-HUD_H-6,PAL.dim); px(ex+13,HUD_H+6,1,gy-HUD_H-6,PAL.dim);
-    for(let y=HUD_H+9;y<gy;y+=7) px(ex,y,14,1,PAL.ink);
+  // 脱出のはしご。天井から下がっていて、跳ばないと届かない
+  for(const L of S.swLadders){
+    const sx=toScreen(L.x)-C.ladderW/2;
+    if(sx<-24||sx>VW+24) continue;
+    const bottom=gy-C.ladderY;
+    px(sx,HUD_H+5,1,bottom-HUD_H-5,PAL.dim);
+    px(sx+C.ladderW-1,HUD_H+5,1,bottom-HUD_H-5,PAL.dim);
+    for(let y=HUD_H+8;y<bottom;y+=7) px(sx,y,C.ladderW,1,PAL.ink);
+    if(Math.floor(S.t*5)%2===0) px(sx+2,bottom-2,C.ladderW-4,2,PAL.warn);
   }
-  // 蝙蝠
+  // 蝙蝠の群れ。跳んでも上は抜けられない高さまで積む
   for(const b of S.swBats){
     const sx=toScreen(b.x);
     if(sx<-16||sx>VW+16) continue;
-    const by=gy-C.batY-C.batH, flap=Math.floor(S.t*9)%2?2:0;
-    px(sx-3,by+4,6,7,PAL.ink);
-    px(sx-9,by+2+flap,6,3,PAL.ink); px(sx+3,by+2+flap,6,3,PAL.ink);
-    px(sx-3,by+1,2,3,PAL.ink); px(sx+1,by+1,2,3,PAL.ink);
+    const flap=Math.floor(S.t*9)%2?2:0;
+    for(let k=0;k<C.batN;k++){
+      const by=gy-C.batY-C.batH-k*C.batGap;
+      const jig=(k%2?2:-2);
+      px(sx-3+jig,by+4,6,7,PAL.ink);
+      px(sx-9+jig,by+2+flap,6,3,PAL.ink); px(sx+3+jig,by+2+flap,6,3,PAL.ink);
+      px(sx-3+jig,by+1,2,3,PAL.ink); px(sx+1+jig,by+1,2,3,PAL.ink);
+    }
   }
   // ミナリ
   const held = touch.down || keys.hold;
@@ -796,9 +864,15 @@ function drawSewerScene(){
     px(pxs-w/2,   by-h-14, Math.round(w*k), 3, k>=0.995?PAL.warn:PAL.ink);
   }
 
-  const left=Math.max(0,C.exitDist-S.swDist);
-  textC("EXIT "+Math.ceil(left/10), HUD_H+9, PAL.dim);
-  let ty=HUD_H+20;
+  // 振動ゲージ。着地のたびに跳ね上がり、地に足がついている間だけ静まる
+  const k=clamp(S.swNoise/C.noiseMax,0,1);
+  const gw=VW-8;
+  px(4,HUD_H+4,gw,5,PAL.bg);
+  px(4,HUD_H+4,Math.round(gw*k),5, k>0.7?PAL.warn:PAL.ink);
+  px(4,HUD_H+3,gw,1,PAL.dim);
+  if(k>0.7 && Math.floor(S.t*8)%2===0) textC("SHE HEARS YOU",HUD_H+12,PAL.warn);
+
+  let ty=HUD_H+22;
   for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
 }
 
@@ -898,7 +972,7 @@ function updateDebug(){
   for(const e of S.ents) if(!e.dead) c[e.kind]=(c[e.kind]||0)+1;
   dbg.textContent=
 `${S.scene} t${S.t.toFixed(1)} seed ${S.seed}
-HEART ${S.hearts}  kid ${(CONFIG.actors.kid.drift*enemySpeed()).toFixed(0)} / man ${(CONFIG.actors.man.drift*enemySpeed()).toFixed(0)} px/s
+HEART ${S.hearts}${S.scene==="sewer"?`  SW heat ${swHeat().toFixed(2)} noise ${S.swNoise.toFixed(0)}/${CONFIG.sewer.noiseMax} spd ${swSpeed().toFixed(0)} dist ${S.swDist.toFixed(0)}`:""}
 DENS ${dens().toFixed(2)} gap x${lerp(CONFIG.spawn.crowdGapFar,CONFIG.spawn.crowdGapNear,dens()).toFixed(2)}
 RATE +${scoreRate().toFixed(0)}/s  enemy x${enemySpeed().toFixed(2)}
 WATCH ${S.watches.length}/${CONFIG.lanes} 列 [${S.watches.map(w=>w.lane).sort().join(",")||"-"}] 叫び=${perScream()}列 densW ${densW().toFixed(2)}
