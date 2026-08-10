@@ -39,6 +39,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
   <input id="tSeed" placeholder="seed" spellcheck="false">
   <button id="tStage">開始ステージ: 1</button>
   <button id="tFall">落下を見る</button>
+  <button id="tSewer">下水を見る</button>
   <button id="tDbg">DEBUG</button>
   <pre id="debug"></pre>
 </div>
@@ -46,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812B";
+const BUILD = "0812C";
 
 /* ============================================================
    CONFIG
@@ -107,6 +108,19 @@ const CONFIG = {
     accel: 58, maxVX: 17, drag: 2.2, catchR: 9,
   },
 
+  // 下水の横スクロール。入力は1つだけ ——
+  //   押しっぱなし = しゃがむ（同時にジャンプを溜める） / 放す = 溜めたぶん跳ぶ
+  // 「しゃがみ続けたら必ず跳ぶ」ので、いつ放すかがそのまま判断になる
+  sewer: {
+    speed: 58, gravity: 520,
+    minJump: 150, maxJump: 258, maxCharge: 0.55,
+    playerX: 0.26,          // 画面幅に対する立ち位置。前を広く見せる
+    groundY: 0.74,          // プレイ領域に対する地面の高さ
+    standH: 15, crouchH: 8, bodyW: 10,
+    batY: 14, batH: 13, batW: 11,   // batY = 地面から蝙蝠の下端までの高さ
+    exitDist: 1500,
+  },
+
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
   hit:    { depth:13, cross:15 },
   input:  { repeatDelay:0.30, repeatInterval:0.13 },
@@ -131,6 +145,40 @@ const PATTERNS = [
   { len:270, rows:[ {t:0,cells:["k",".",".","m","."]}, {t:140,cells:[".","m",".",".","k"]} ]},
   { len:280, rows:[ {t:0,cells:["k","m",".","m","."]}, {t:150,cells:[".",".","k",".","m"]} ]},
 ];
+/* ============================================================
+   SEWER — 下水の地形。gaps=[開始x, 幅] / bats=[x]
+   穴は跳んで越え、蝙蝠はしゃがんで（または大きく跳んで）かわす
+   ============================================================ */
+const SEWER = [
+  { len:220, gaps:[[130,28]],                 bats:[] },        // ただの穴
+  { len:240, gaps:[],                         bats:[120] },     // ただの蝙蝠
+  { len:270, gaps:[[145,42]],                 bats:[] },        // 広い穴。大きく溜める
+  { len:290, gaps:[[85,26],[190,26]],         bats:[] },        // 連続する小穴
+  { len:310, gaps:[[180,34]],                 bats:[70] },      // 蝙蝠→穴。溜めがそのまま活きる
+  { len:310, gaps:[[80,30]],                  bats:[200] },     // 穴→蝙蝠。跳んだ直後に伏せる
+  { len:340, gaps:[[110,24],[186,24],[262,24]], bats:[] },      // 三連
+  { len:360, gaps:[[155,46]],                 bats:[60,268] },  // 蝙蝠→広い穴→蝙蝠
+];
+
+/* 保証則: 穴は跳べる幅で、踏み切りと着地の足場がある */
+function validateSewer(){
+  const S_=CONFIG.sewer;
+  const air = 2*S_.maxJump/S_.gravity;          // 最大溜めの滞空時間
+  const reach = air*S_.speed;                   // 跳べる距離
+  const bad=[];
+  SEWER.forEach((p,i)=>{
+    const gs=[...p.gaps].sort((a,b)=>a[0]-b[0]);
+    gs.forEach(([x,w],k)=>{
+      if(w > reach-6) bad.push(`SEWER${i}: 穴が広すぎる ${w}px（跳べるのは ${reach.toFixed(0)}px まで）`);
+      if(x < 24) bad.push(`SEWER${i}: 踏み切りの足場が足りない`);
+      if(x+w > p.len-24) bad.push(`SEWER${i}: 着地の足場が足りない`);
+      if(k>0 && x-(gs[k-1][0]+gs[k-1][1]) < 26) bad.push(`SEWER${i}: 穴の間隔が狭すぎる`);
+    });
+  });
+  if(bad.length) console.warn("[保証則/下水]\n"+bad.join("\n"));
+  return bad;
+}
+
 /* 保証則: どの行にも必ず通れる列が1本ある */
 function validatePatterns(){
   const bad=[];
@@ -159,6 +207,9 @@ const S = {
   scene:"title",            // title | play | falling | over
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
+  // 下水: y は地面からの高さ。charge は溜め秒数
+  swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
+  swGaps:[], swBats:[], swCursor:0, swDrop:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -262,7 +313,7 @@ function spawnWatch(){
    入力
    ============================================================ */
 const touch={down:false,x:0,y:0,dir:0,holdT:0,reps:0,showT:0};
-const edge={}, keys={left:false,right:false};
+const edge={}, keys={left:false,right:false,hold:false};
 function onDown(e){
   const p=e.touches?e.touches[0]:e;
   touch.down=true; touch.holdT=0; touch.reps=0; touch.showT=.4;
@@ -288,13 +339,15 @@ cv.addEventListener("pointerdown",e=>{e.preventDefault();cv.setPointerCapture(e.
 cv.addEventListener("pointermove",e=>{e.preventDefault();onMove(e);});
 cv.addEventListener("pointerup",e=>{e.preventDefault();onUp();});
 cv.addEventListener("pointercancel",onUp);
-const KEYMAP={ArrowLeft:"left",ArrowRight:"right",KeyA:"left",KeyD:"right",Enter:"start",Space:"start"};
+const KEYMAP={ArrowLeft:"left",ArrowRight:"right",KeyA:"left",KeyD:"right",
+              Enter:"start",Space:"hold",ArrowDown:"hold",KeyS:"hold"};
 addEventListener("keydown",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
   if(n==="left"&&!keys.left){keys.left=true;edge.left=true;}
   if(n==="right"&&!keys.right){keys.right=true;edge.right=true;}
+  if(n==="hold"&&!keys.hold){keys.hold=true;edge.start=true;}   // 下水では押しっぱなし＝しゃがみ
   if(n==="start")edge.start=true;});
 addEventListener("keyup",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
-  if(n==="left")keys.left=false; if(n==="right")keys.right=false;});
+  if(n==="left")keys.left=false; if(n==="right")keys.right=false; if(n==="hold")keys.hold=false;});
 
 /* ============================================================
    更新
@@ -362,7 +415,79 @@ function updateFall(dt){
       else { S.score+=CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
     }
   }
-  if(S.fallT>=F.duration){ S.stage++; enterAlley(); }
+  if(S.fallT>=F.duration) enterSewer();
+}
+
+/* ------------------------------------------------------------
+   下水 — 横スクロール。入力は1つだけ
+     押しっぱなし = しゃがむ（＋ジャンプを溜める） / 放す = 溜めたぶん跳ぶ
+   しゃがみ続ければ必ず跳ぶことになるので、いつ放すかがそのまま判断になる
+   ------------------------------------------------------------ */
+function fillSewer(){
+  while(S.swCursor < S.swDist + VW*2.4){
+    const p=SEWER[Math.floor(rnd()*SEWER.length)];
+    for(const g of p.gaps) S.swGaps.push({x0:S.swCursor+g[0], x1:S.swCursor+g[0]+g[1]});
+    for(const x of p.bats) S.swBats.push({x:S.swCursor+x, dead:false});
+    S.swCursor += p.len;
+  }
+}
+const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.35);
+const overGap = x => S.swGaps.some(g=>x>g.x0 && x<g.x1);
+
+function enterSewer(){
+  S.scene="sewer";
+  S.swDist=0; S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0; S.swHeld=false;
+  S.swGaps=[]; S.swBats=[]; S.swCursor=0; S.swDrop=0; S.invuln=1.0;
+  fillSewer();
+}
+function updateSewer(dt){
+  const C=CONFIG.sewer;
+  const held = touch.down || keys.hold;
+
+  S.swDist += swSpeed()*dt;
+  S.invuln = Math.max(0,S.invuln-dt);
+  fillSewer();
+
+  if(S.swGround){
+    if(held) S.swCharge = Math.min(C.maxCharge, S.swCharge+dt);
+    else if(S.swHeld){                       // 放した瞬間に跳ぶ
+      S.swVY = lerp(C.minJump, C.maxJump, S.swCharge/C.maxCharge);
+      S.swCharge = 0; S.swGround = false;
+      S.swY += S.swVY*dt;                    // その場で浮かせる。1フレーム棒立ちにしない
+    }
+    if(overGap(S.swDist)){ S.swGround=false; S.swCharge=0; }   // 足場が切れたら落ちる
+  } else {
+    S.swVY -= C.gravity*dt;
+    S.swY  += S.swVY*dt;
+    if(S.swY<=0 && !overGap(S.swDist)){ S.swY=0; S.swVY=0; S.swGround=true; }
+  }
+  S.swHeld = held;
+
+  // 水に落ちた
+  if(S.swY < -34){
+    if(damage()) return;
+    const g=S.swGaps.find(g=>S.swDist>g.x0 && S.swDist<g.x1);
+    S.swDist = g ? g.x1+10 : S.swDist+24;
+    S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0;
+    S.invuln=Math.max(S.invuln,1.2); S.shake=4; toast("落ちた");
+  }
+
+  // 蝙蝠。しゃがめば下を通せるし、大きく跳べば上も抜けられる
+  const h = (S.swGround && held) ? C.crouchH : C.standH;
+  for(const b of S.swBats){
+    if(b.dead || S.invuln>0) continue;
+    if(Math.abs(b.x-S.swDist) > (C.bodyW+C.batW)/2) continue;
+    if(S.swY < C.batY+C.batH && S.swY+h > C.batY){
+      b.dead=true;
+      if(damage()) return;
+      toast("蝙蝠");
+    }
+  }
+
+  S.swGaps = S.swGaps.filter(g=>g.x1 > S.swDist-VW);
+  S.swBats = S.swBats.filter(b=>!b.dead && b.x > S.swDist-VW);
+
+  if(S.swDist >= C.exitDist){ S.stage++; enterAlley(); }
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -431,6 +556,7 @@ function update(dt){
   for(const t of S.toasts) t.life-=dt;
   S.toasts=S.toasts.filter(t=>t.life>0);
   if(S.scene==="falling") return updateFall(dt);
+  if(S.scene==="sewer")   return updateSewer(dt);
   if(S.scene!=="play"){ if(edge.start) startRun(); return; }
   updatePlay(dt);
 }
@@ -607,6 +733,75 @@ function drawFall(){
   textC("BACK TO ALLEY",VH-14,PAL.off);
 }
 
+/** 下水。横スクロールなので、路地・落下とは軸そのものが違う */
+function drawMinariSide(cx,by,crouch){
+  const h = crouch?CONFIG.sewer.crouchH:CONFIG.sewer.standH;
+  px(cx-5,by-h,10,h,PAL.ink);
+  px(cx-8,by-h-5,5,6,PAL.ink); px(cx+3,by-h-5,5,6,PAL.ink);   // 耳
+  px(cx-2,by-h+3,4,2,PAL.bg);                                  // 目
+  px(cx+5,by-3,6,2,PAL.ink);                                   // しっぽ
+}
+function drawSewerScene(){
+  const C=CONFIG.sewer;
+  const gy = HUD_H+(VH-HUD_H)*C.groundY;
+  const pxs = Math.round(VW*C.playerX);
+  const toScreen = wx => pxs + (wx - S.swDist);
+
+  px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
+  px(0,HUD_H,VW,5,PAL.dim);                                    // 天井
+  for(let i=0;i<9;i++){
+    const x = VW - ((S.swDist*0.55 + i*27) % (VW+22));
+    px(x,HUD_H+5,1,3,PAL.off);                                 // 天井のしずく
+  }
+  // 地面（穴以外）
+  for(let sx=0;sx<VW;sx++){
+    const wx = S.swDist + (sx-pxs);
+    if(overGap(wx)) continue;
+    px(sx,gy,1,2,PAL.ink);
+    px(sx,gy+2,1,VH-gy-2,PAL.off);
+  }
+  // 穴の下の水面
+  for(const g of S.swGaps){
+    const x0=Math.max(0,toScreen(g.x0)), x1=Math.min(VW,toScreen(g.x1));
+    if(x1<=0||x0>=VW) continue;
+    for(let y=gy+9;y<VH;y+=7){
+      const o=Math.round(Math.sin(y*0.7+S.swDist*0.06)*2);
+      px(x0+2+o,y,Math.max(0,x1-x0-4),1,PAL.dim);
+    }
+  }
+  // 出口のはしご
+  const ex=toScreen(C.exitDist);
+  if(ex<VW+24 && ex>-24){
+    px(ex,HUD_H+6,1,gy-HUD_H-6,PAL.dim); px(ex+13,HUD_H+6,1,gy-HUD_H-6,PAL.dim);
+    for(let y=HUD_H+9;y<gy;y+=7) px(ex,y,14,1,PAL.ink);
+  }
+  // 蝙蝠
+  for(const b of S.swBats){
+    const sx=toScreen(b.x);
+    if(sx<-16||sx>VW+16) continue;
+    const by=gy-C.batY-C.batH, flap=Math.floor(S.t*9)%2?2:0;
+    px(sx-3,by+4,6,7,PAL.ink);
+    px(sx-9,by+2+flap,6,3,PAL.ink); px(sx+3,by+2+flap,6,3,PAL.ink);
+    px(sx-3,by+1,2,3,PAL.ink); px(sx+1,by+1,2,3,PAL.ink);
+  }
+  // ミナリ
+  const held = touch.down || keys.hold;
+  const crouch = S.swGround && held;
+  const by = gy - S.swY;
+  if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinariSide(pxs,by,crouch);
+  // 溜め
+  if(S.swCharge>0){
+    const k=S.swCharge/C.maxCharge, w=16, h=crouch?C.crouchH:C.standH;
+    px(pxs-w/2-1, by-h-15, w+2, 5, PAL.bg);
+    px(pxs-w/2,   by-h-14, Math.round(w*k), 3, k>=0.995?PAL.warn:PAL.ink);
+  }
+
+  const left=Math.max(0,C.exitDist-S.swDist);
+  textC("EXIT "+Math.ceil(left/10), HUD_H+9, PAL.dim);
+  let ty=HUD_H+20;
+  for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
+}
+
 function drawHUD(){
   px(0,0,VW,HUD_H,PAL.off);
   px(0,HUD_H-1,VW,1,PAL.dim);
@@ -662,6 +857,7 @@ function render(){
   if(S.scene==="title") drawTitle();
   else if(S.scene==="over") drawOver();
   else if(S.scene==="falling"){ drawFall(); drawHUD(); }
+  else if(S.scene==="sewer"){ drawSewerScene(); drawHUD(); }
   else { drawAlley(); drawHUD(); }
   ctx.restore();
 }
@@ -692,6 +888,10 @@ document.getElementById("tFall").onclick=()=>{
   if(S.scene==="title"||S.scene==="over") startRun();
   enterFall();
 };
+document.getElementById("tSewer").onclick=()=>{
+  if(S.scene==="title"||S.scene==="over") startRun();
+  enterSewer();
+};
 function updateDebug(){
   if(!CONFIG.debug){ if(dbg.textContent) dbg.textContent=""; return; }
   const c={};
@@ -709,6 +909,7 @@ ENTS ${JSON.stringify(c)}  VIEW ${VW}x${VH}`;
 
 try{ S.best=parseInt(localStorage.getItem("sugake_alley_best")||"0",10)||0; }catch(e){}
 validatePatterns();
+validateSewer();
 resize();
 rnd=mulberry32(hashSeed("boot"));
 requestAnimationFrame(frame);
