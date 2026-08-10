@@ -46,7 +46,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812A";
+const BUILD = "0812B";
 
 /* ============================================================
    CONFIG
@@ -536,15 +536,25 @@ function drawActor(e){
   }
 }
 
-/** 監視されている列。ミナリの視線の先＝画面の上に小さな目を出すだけ。
-    列を塗らず、ゲージも出さない ＝ 気づけなかったらアウト */
+/** 監視されている列。目はミナリの視線の先＝画面の上。列そのものもハッチで示す */
 function drawWatches(){
   const blink = Math.floor(S.t*6)%2===0;
   for(const w of S.watches){
-    const cx=laneX(w.lane), cy=HUD_H+10;
-    ring(cx,cy,7,5,blink?PAL.ink:PAL.dim);
-    px(cx-2,cy-2,4,4,PAL.ink);
+    const x0=laneW()*w.lane, ww=laneW(), cx=x0+ww/2;
+    for(let y=HUD_H+2;y<VH;y+=6) px(x0+2,y,ww-4,1,PAL.off);
+    px(x0+1,HUD_H,1,VH-HUD_H,PAL.dim); px(x0+ww-2,HUD_H,1,VH-HUD_H,PAL.dim);
+    ring(cx,HUD_H+10,7,5,blink?PAL.ink:PAL.dim);
+    px(cx-2,HUD_H+8,4,4,PAL.ink);
   }
+}
+/** 見られている時間。ミナリの真上に1本 */
+function drawSeen(cx,by){
+  const k=clamp(S.seen/CONFIG.watch.catch,0,1);
+  if(k<=0) return;
+  const w=22, x=cx-w/2, y=by-30;
+  px(x-1,y-1,w+2,5,PAL.bg);
+  px(x,y,Math.round(w*k),3, k>0.6?PAL.warn:PAL.ink);
+  if(k>0.6 && Math.floor(S.t*12)%2===0) text("!",cx-2,y-9,PAL.warn);
 }
 
 function drawAlley(){
@@ -557,6 +567,7 @@ function drawAlley(){
   drawWatches();
   for(const e of S.ents) if(!e.dead) drawActor(e);
   if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinari(laneX(S.laneF),playerY);
+  drawSeen(laneX(S.laneF),playerY);
 
   let ty=HUD_H+4;
   for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
