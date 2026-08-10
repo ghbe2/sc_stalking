@@ -47,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812D";
+const BUILD = "0812E";
 
 /* ============================================================
    CONFIG
@@ -118,14 +118,23 @@ const CONFIG = {
     groundY: 0.74,          // プレイ領域に対する地面の高さ
     standH: 15, crouchH: 8, bodyW: 10,
 
-    // 蝙蝠は群れ。跳んでも上を抜けられない高さまで積むので、しゃがむしかない
-    batY: 14, batW: 11, batH: 13, batN: 5, batGap: 16,
+    // 蝙蝠は群れ。跳んでも上を抜けられない高さまで積むので、しゃがむしかない。
+    // 向かって飛んでくるので、地形より速く迫る
+    batY: 14, batW: 11, batH: 13, batN: 5, batGap: 16, batDrift: -28,
+
+    // 蛇は地を這う。しゃがんでも当たるので、跳ぶしかない
+    snakeW: 17, snakeH: 7,
+
+    // 水たまりは踏んでもダメージは無い。ただしトウカに位置が伝わる
+    puddleNoise: 30,
+
+    // チーズ。走っているだけでは届かず、跳べば取れる
+    cheeseW: 9, cheeseH: 9, cheeseY: 24, cheeseScore: 60,
 
     // はしご＝脱出。天井から下がっていて、跳ばないと届かない＝自分の意思で選ぶ
     ladderDist: 540, ladderY: 30, ladderW: 15,
 
-    // 着地の振動でトウカに感知される。大きく跳ぶほど重い
-    noiseMax: 100, noiseMin: 5, noiseHeavy: 26, noiseDecay: 6.5,
+    noiseMax: 100, noiseDecay: 4.5,
 
     ramp: 2200,             // この距離をかけて下水そのものが難しくなる
     speedUp: 0.30,          // 最奥での速度の伸び
@@ -156,44 +165,75 @@ const PATTERNS = [
   { len:280, rows:[ {t:0,cells:["k","m",".","m","."]}, {t:150,cells:[".",".","k",".","m"]} ]},
 ];
 /* ============================================================
-   SEWER — 下水の地形。gaps=[開始x, 幅] / bats=[x]
-   穴は跳んで越え、蝙蝠はしゃがんで（または大きく跳んで）かわす
+   SEWER — 下水。地面は途切れない
+     bats    : しゃがんでかわす（跳んでも群れの上は抜けられない）
+     snakes  : 跳んでかわす（しゃがんでも当たる）
+     puddles : 踏んでもダメージは無いが、トウカに位置が伝わる。跳べば避けられる
+     cheese  : 跳んで取るとスコア
    ============================================================ */
 const SEWER = [
-  { d:1, len:220, gaps:[[130,28]],                 bats:[] },        // ただの穴
-  { d:1, len:240, gaps:[],                         bats:[120] },     // ただの蝙蝠
-  { d:1, len:250, gaps:[[120,24]],                 bats:[] },
-  { d:2, len:270, gaps:[[145,42]],                 bats:[] },        // 広い穴。大きく溜める
-  { d:2, len:290, gaps:[[85,26],[190,26]],         bats:[] },        // 連続する小穴
-  { d:2, len:310, gaps:[[180,34]],                 bats:[70] },      // 蝙蝠→穴。溜めが活きる
-  { d:3, len:310, gaps:[[80,30]],                  bats:[200] },     // 穴→蝙蝠。着地して伏せ直す
-  { d:3, len:340, gaps:[[110,24],[186,24],[262,24]], bats:[] },      // 三連
-  { d:3, len:360, gaps:[[155,46]],                 bats:[60,268] },  // 蝙蝠→広い穴→蝙蝠
-  { d:4, len:380, gaps:[[95,30],[205,38]],         bats:[300] },
-  { d:4, len:400, gaps:[[150,44]],                 bats:[60,240,320] },
+  { d:1, len:230, bats:[130], snakes:[],    puddles:[],                cheese:[60] },
+  { d:1, len:240, bats:[],    snakes:[140], puddles:[],                cheese:[] },
+  { d:1, len:250, bats:[],    snakes:[],    puddles:[[120,30]],        cheese:[215] },
+  { d:2, len:280, bats:[90],  snakes:[],    puddles:[[195,32]],        cheese:[] },
+  { d:2, len:290, bats:[],    snakes:[80],  puddles:[[195,28]],        cheese:[140] },
+  { d:2, len:300, bats:[70,215], snakes:[], puddles:[],                cheese:[145] },
+  { d:3, len:310, bats:[],    snakes:[70],  puddles:[[165,34]],        cheese:[245] },
+  { d:3, len:320, bats:[185], snakes:[],    puddles:[[100,30]],        cheese:[] },  // 跳んで避けると蝙蝠に間に合わない
+  { d:3, len:330, bats:[80],  snakes:[190], puddles:[],                cheese:[265] },
+  { d:4, len:350, bats:[70,255], snakes:[160], puddles:[],             cheese:[] },
+  { d:4, len:360, bats:[90],  snakes:[],    puddles:[[175,30],[245,30]], cheese:[305] },
+  { d:4, len:380, bats:[60,305], snakes:[185], puddles:[[110,26]],     cheese:[] },
+  // 水たまりの連続。全部踏み抜くとトウカに掴まれる
+  { d:3, len:340, bats:[],    snakes:[],    puddles:[[70,28],[150,28],[230,28]], cheese:[] },
+  { d:4, len:400, bats:[300], snakes:[],    puddles:[[60,26],[130,26],[200,26],[262,26]], cheese:[] },
+  // 跳び越えられない広さ。濡れるしかない ＝ 気配が必ず溜まる
+  { d:2, len:300, bats:[],    snakes:[],    puddles:[[110,72]],       cheese:[240] },
+  { d:3, len:340, bats:[250], snakes:[],    puddles:[[90,78]],        cheese:[] },
+  { d:4, len:390, bats:[],    snakes:[280], puddles:[[80,74],[180,68]], cheese:[] },
 ];
 
-/* 保証則: 穴は跳べる幅で、踏み切りと着地の足場がある */
+/* 保証則: しゃがみと跳躍が同時に要求されないこと、届く高さであること */
 function validateSewer(){
-  const S_=CONFIG.sewer;
-  const air = 2*S_.maxJump/S_.gravity;          // 最大溜めの滞空時間
-  const reach = air*S_.speed;                   // 跳べる距離（最奥では速くなるぶん伸びる）
-  const bad=[];
-  // 蝙蝠の群れは、最大溜めで跳んでも抜けられない高さであること
-  const apex = S_.maxJump*S_.maxJump/(2*S_.gravity);
-  const batTop = S_.batY + S_.batH + (S_.batN-1)*S_.batGap;
-  if(batTop < apex + S_.standH + 4)
-    bad.push(`蝙蝠の群れが低い（上端${batTop}px / 跳ぶと頭が${(apex+S_.standH).toFixed(0)}px）`);
-  // はしごは跳ばないと届かず、最大溜めなら届くこと
-  if(S_.ladderY <= S_.standH) bad.push("はしごが低い（走っているだけで届く）");
-  if(S_.ladderY > apex + S_.standH) bad.push("はしごが高い（最大溜めでも届かない）");
+  const C=CONFIG.sewer, bad=[];
+  const apex = C.maxJump*C.maxJump/(2*C.gravity);
+  const head = apex + C.standH;
+  const minAir = 2*C.minJump/C.gravity;
+
+  const batTop = C.batY + C.batH + (C.batN-1)*C.batGap;
+  if(batTop < head + 4) bad.push(`蝙蝠の群れが低い（上端${batTop}px / 跳ぶと頭が${head.toFixed(0)}px）`);
+  if(C.snakeH >= C.crouchH) bad.push("蛇が高い（しゃがんでも当たるべきだが、跳んでも当たる恐れ）");
+  if(C.ladderY <= C.standH) bad.push("はしごが低い（走っているだけで届く）");
+  if(C.ladderY > head)      bad.push("はしごが高い（最大溜めでも届かない）");
+  if(C.cheeseY <= C.standH) bad.push("チーズが低い（走っているだけで取れる）");
+  if(C.cheeseY > head)      bad.push("チーズが高い（最大溜めでも届かない）");
+
   SEWER.forEach((p,i)=>{
-    const gs=[...p.gaps].sort((a,b)=>a[0]-b[0]);
-    gs.forEach(([x,w],k)=>{
-      if(w > reach-6) bad.push(`SEWER${i}: 穴が広すぎる ${w}px（跳べるのは ${reach.toFixed(0)}px まで）`);
-      if(x < 24) bad.push(`SEWER${i}: 踏み切りの足場が足りない`);
-      if(x+w > p.len-24) bad.push(`SEWER${i}: 着地の足場が足りない`);
-      if(k>0 && x-(gs[k-1][0]+gs[k-1][1]) < 26) bad.push(`SEWER${i}: 穴の間隔が狭すぎる`);
+    // 蛇を跳んだあと、着地してしゃがむまでに蝙蝠が来ないこと。
+    // 蝙蝠は向かってくるので、その接近ぶんも見込む
+    const closing = (C.speed + Math.abs(C.batDrift)) / C.speed;
+    p.snakes.forEach(sx=>{
+      p.bats.forEach(bx=>{
+        const d=bx-sx;
+        if(d>0 && d < (minAir*C.speed + 16)*closing)
+          bad.push(`SEWER${i}: 蛇@${sx}の直後に蝙蝠@${bx}（着地して伏せる間がない）`);
+      });
+    });
+    // 跳び越えられない水たまりは、跳ぼうとしないよう十分広いこと（中途半端を作らない）
+    p.puddles.forEach(q=>{
+      const reach = (2*C.maxJump/C.gravity)*C.speed;
+      if(q[1] > reach-8 && q[1] < reach+10)
+        bad.push(`SEWER${i}: 水たまり幅${q[1]}px が跳べるか微妙（${reach.toFixed(0)}px 前後）`);
+    });
+    // 蝙蝠をやり過ごした直後に蛇が来ないこと
+    p.bats.forEach(bx=>{
+      p.snakes.forEach(sx=>{
+        const d=sx-bx;
+        if(d>0 && d < 26) bad.push(`SEWER${i}: 蝙蝠@${bx}の直後に蛇@${sx}（起き上がる間がない）`);
+      });
+    });
+    [...p.cheese, ...p.snakes].forEach(x=>{
+      if(x<20 || x>p.len-20) bad.push(`SEWER${i}: 端に寄りすぎ (${x})`);
     });
   });
   if(bad.length) console.warn("[保証則/下水]\n"+bad.join("\n"));
@@ -230,7 +270,8 @@ const S = {
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
-  swGaps:[], swBats:[], swLadders:[], swCursor:0, swNoise:0, swNextLadder:0,
+  swBats:[], swSnakes:[], swPuddles:[], swItems:[], swLadders:[],
+  swCursor:0, swNoise:0, swNextLadder:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -447,24 +488,29 @@ function updateFall(dt){
 /** 下水の深さ 0..1。潜るほど地形が険しくなる */
 const swHeat = () => clamp(S.swDist/CONFIG.sewer.ramp, 0, 1);
 const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.20+swHeat()*CONFIG.sewer.speedUp);
-const overGap = x => S.swGaps.some(g=>x>g.x0 && x<g.x1);
-
 function fillSewer(){
   const tier = 1 + swHeat()*3;
   while(S.swCursor < S.swDist + VW*2.4){
     const pool = SEWER.filter(p=>p.d<=Math.ceil(tier));
     const p = pool[Math.floor(rnd()*pool.length)];
-    for(const g of p.gaps) S.swGaps.push({x0:S.swCursor+g[0], x1:S.swCursor+g[0]+g[1]});
-    for(const x of p.bats) S.swBats.push({x:S.swCursor+x, dead:false});
+    // 蝙蝠は向かって飛んでくるぶん、到達までに手前へ寄る。
+    // 譜面に書いた位置で出会うよう、寄る距離を足した所から飛ばす
+    for(const x of p.bats){
+      const at=S.swCursor+x, lead=Math.max(0,(at-S.swDist)/swSpeed());
+      S.swBats.push({x: at + Math.abs(CONFIG.sewer.batDrift)*lead, dead:false});
+    }
+    for(const x of p.snakes)  S.swSnakes.push({x:S.swCursor+x, dead:false});
+    for(const q of p.puddles) S.swPuddles.push({x0:S.swCursor+q[0], x1:S.swCursor+q[0]+q[1], wet:false});
+    for(const x of p.cheese)  S.swItems.push({x:S.swCursor+x, dead:false});
     S.swCursor += p.len;
   }
-  // はしごは一定距離ごと。前後に穴が無い平地にだけ置く。
-  // そうしないと、穴を越えるための跳躍で事故的に掴んでしまい「自分で選んだ脱出」にならない
-  // 穴からも蝙蝠からも離れた平地。そこでの跳躍は「掴みに行った」以外にありえない
-  const clear = x => {
-    for(let d=-70; d<=70; d+=6) if(overGap(x+d)) return false;
-    return !S.swBats.some(b=>Math.abs(b.x-x)<80);
-  };
+  // はしごは、蝙蝠・蛇・水たまりから離れた平地にだけ置く。
+  // 近くにあると、避けるための跳躍で事故的に掴んでしまい「自分で選んだ脱出」にならない
+  const clear = x =>
+    !S.swBats.some(b=>Math.abs(b.x-x)<110) &&
+    !S.swSnakes.some(s=>Math.abs(s.x-x)<70) &&
+    !S.swItems.some(i=>Math.abs(i.x-x)<70) &&
+    !S.swPuddles.some(q=>x>q.x0-70 && x<q.x1+70);
   while(S.swNextLadder < S.swDist + VW*2.2){
     let x=S.swNextLadder;
     for(let i=0;i<60 && !clear(x);i++) x+=12;
@@ -476,7 +522,8 @@ function fillSewer(){
 function enterSewer(){
   S.scene="sewer";
   S.swDist=0; S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0; S.swHeld=false;
-  S.swGaps=[]; S.swBats=[]; S.swLadders=[]; S.swCursor=0; S.swNoise=0;
+  S.swBats=[]; S.swSnakes=[]; S.swPuddles=[]; S.swItems=[]; S.swLadders=[];
+  S.swCursor=0; S.swNoise=0;
   S.swNextLadder=CONFIG.sewer.ladderDist*0.8; S.invuln=1.0;
   fillSewer();
 }
@@ -488,8 +535,8 @@ function updateSewer(dt){
   S.invuln = Math.max(0,S.invuln-dt);
   fillSewer();
 
-  // 地面に足がついている間だけ、振動は静まっていく
-  if(S.swGround) S.swNoise = Math.max(0, S.swNoise - C.noiseDecay*dt);
+  // 静かにしていれば、伝わった気配は薄れていく
+  S.swNoise = Math.max(0, S.swNoise - C.noiseDecay*dt);
 
   if(S.swGround){
     if(held) S.swCharge = Math.min(C.maxCharge, S.swCharge+dt);
@@ -498,22 +545,23 @@ function updateSewer(dt){
       S.swCharge = 0; S.swGround = false;
       S.swY += S.swVY*dt;                    // その場で浮かせる。1フレーム棒立ちにしない
     }
-    if(overGap(S.swDist)){ S.swGround=false; S.swCharge=0; }   // 足場が切れたら落ちる
   } else {
     S.swVY -= C.gravity*dt;
     S.swY  += S.swVY*dt;
-    if(S.swY<=0 && !overGap(S.swDist)){
-      // 着地 = 振動。落ちてきた勢いが大きいほど重く響く（＝大きく溜めたぶんだけ高くつく）
-      // 溜めなしの跳躍を 0、最大溜めを 1 とする。小さく跳べば静か
-      const impact = clamp((-S.swVY - C.minJump)/(C.maxJump - C.minJump), 0, 1);
-      S.swNoise = Math.min(C.noiseMax, S.swNoise + lerp(C.noiseMin, C.noiseHeavy, impact));
-      S.swY=0; S.swVY=0; S.swGround=true;
-      if(impact>0.55) S.shake=Math.max(S.shake,2.2);
-    }
+    if(S.swY<=0){ S.swY=0; S.swVY=0; S.swGround=true; }
   }
   S.swHeld = held;
 
-  // 振動が積もりきると、トウカに位置を掴まれる
+  // 水たまり。踏んでもダメージは無いが、水が跳ねてトウカに位置が伝わる
+  for(const q of S.swPuddles){
+    if(q.wet) continue;
+    if(S.swDist>q.x0 && S.swDist<q.x1 && S.swY<=1){
+      q.wet=true;
+      S.swNoise = Math.min(C.noiseMax, S.swNoise + C.puddleNoise);
+      S.shake=Math.max(S.shake,2.4); toast("水を踏んだ");
+    }
+  }
+  // 気配が積もりきると、トウカに位置を掴まれる
   if(S.swNoise >= C.noiseMax) return finish("touka");
 
   // 水に落ちた
@@ -525,11 +573,14 @@ function updateSewer(dt){
     S.invuln=Math.max(S.invuln,1.2); S.shake=4; toast("落ちた");
   }
 
-  // 蝙蝠は群れ。跳んでも上は抜けられないので、しゃがむしかない
   const h = (S.swGround && held) ? C.crouchH : C.standH;
+
+  // 蝙蝠の群れ。向かって飛んでくるので地形より速い。跳んでも上は抜けられない
   const batTop = C.batY + C.batH + (C.batN-1)*C.batGap;
   for(const b of S.swBats){
-    if(b.dead || S.invuln>0) continue;
+    if(b.dead) continue;
+    b.x += C.batDrift*dt;
+    if(S.invuln>0) continue;
     if(Math.abs(b.x-S.swDist) > (C.bodyW+C.batW)/2) continue;
     if(S.swY < batTop && S.swY+h > C.batY){
       b.dead=true;
@@ -537,7 +588,24 @@ function updateSewer(dt){
       toast("蝙蝠");
     }
   }
-
+  // 蛇は地を這う。しゃがんでも当たるので跳ぶしかない
+  for(const s of S.swSnakes){
+    if(s.dead || S.invuln>0) continue;
+    if(Math.abs(s.x-S.swDist) > (C.bodyW+C.snakeW)/2) continue;
+    if(S.swY < C.snakeH){
+      s.dead=true;
+      if(damage()) return;
+      toast("蛇");
+    }
+  }
+  // チーズ。走っているだけでは届かない
+  for(const it of S.swItems){
+    if(it.dead) continue;
+    if(Math.abs(it.x-S.swDist) > (C.bodyW+C.cheeseW)/2) continue;
+    if(S.swY+h >= C.cheeseY && S.swY <= C.cheeseY+C.cheeseH){
+      it.dead=true; S.score += C.cheeseScore; toast("+"+C.cheeseScore);
+    }
+  }
   // はしごは天井から下がっている。跳んで掴めば地上へ＝抜けるかどうかは自分で決める
   for(const L of S.swLadders){
     if(L.dead) continue;
@@ -545,9 +613,12 @@ function updateSewer(dt){
     if(S.swY+h >= C.ladderY){ L.dead=true; S.stage++; return enterAlley(); }
   }
 
-  S.swGaps    = S.swGaps.filter(g=>g.x1 > S.swDist-VW);
-  S.swBats    = S.swBats.filter(b=>!b.dead && b.x > S.swDist-VW);
-  S.swLadders = S.swLadders.filter(L=>!L.dead && L.x > S.swDist-VW);
+  const back = S.swDist-VW;
+  S.swBats    = S.swBats.filter(b=>!b.dead && b.x > back);
+  S.swSnakes  = S.swSnakes.filter(s=>!s.dead && s.x > back);
+  S.swPuddles = S.swPuddles.filter(q=>q.x1 > back);
+  S.swItems   = S.swItems.filter(i=>!i.dead && i.x > back);
+  S.swLadders = S.swLadders.filter(L=>!L.dead && L.x > back);
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -813,21 +884,43 @@ function drawSewerScene(){
     const x = VW - ((S.swDist*0.55 + i*27) % (VW+22));
     px(x,HUD_H+5,1,3,PAL.off);                                 // 天井のしずく
   }
-  // 地面（穴以外）
-  for(let sx=0;sx<VW;sx++){
-    const wx = S.swDist + (sx-pxs);
-    if(overGap(wx)) continue;
-    px(sx,gy,1,2,PAL.ink);
-    px(sx,gy+2,1,VH-gy-2,PAL.off);
+  // 地面は途切れない
+  px(0,gy,VW,2,PAL.ink);
+  px(0,gy+2,VW,VH-gy-2,PAL.off);
+  for(let i=0;i<10;i++){
+    const x=VW-((S.swDist*1.0+i*26)%(VW+26));
+    px(x,gy+5,10,1,PAL.dim);                                   // 床のタイル目地
   }
-  // 穴の下の水面
-  for(const g of S.swGaps){
-    const x0=Math.max(0,toScreen(g.x0)), x1=Math.min(VW,toScreen(g.x1));
+  // 水たまり
+  for(const q of S.swPuddles){
+    const x0=Math.max(0,toScreen(q.x0)), x1=Math.min(VW,toScreen(q.x1));
     if(x1<=0||x0>=VW) continue;
-    for(let y=gy+9;y<VH;y+=7){
-      const o=Math.round(Math.sin(y*0.7+S.swDist*0.06)*2);
-      px(x0+2+o,y,Math.max(0,x1-x0-4),1,PAL.dim);
+    const w=Math.max(0,x1-x0);
+    px(x0,gy,w,3,q.wet?PAL.dim:PAL.dim);
+    for(let k=0;k<3;k++){
+      const o=Math.round(Math.sin(k*2+S.t*3)*2);
+      px(x0+3+o,gy+1+k,Math.max(0,w-6),1, k===1?PAL.bg:PAL.dim);
     }
+    if(q.wet){                                                  // 踏んだあとの波紋
+      ring(x0+w/2, gy+1, w*0.5, 3, PAL.ink);
+    }
+  }
+  // 蛇
+  for(const s of S.swSnakes){
+    const sx=toScreen(s.x);
+    if(sx<-20||sx>VW+20) continue;
+    const wig=Math.floor(S.t*8)%2?1:0;
+    px(sx-8,gy-C.snakeH+wig,16,3,PAL.ink);
+    px(sx-8,gy-3,5,3,PAL.ink); px(sx+2,gy-3,6,3,PAL.ink);
+    px(sx+6,gy-C.snakeH-1+wig,4,3,PAL.ink);                     // 頭
+  }
+  // チーズ
+  for(const it of S.swItems){
+    const sx=toScreen(it.x);
+    if(sx<-14||sx>VW+14) continue;
+    const cy=gy-C.cheeseY-C.cheeseH;
+    for(let r=0;r<C.cheeseH;r++) px(sx-4+Math.round(r*0.35),cy+r,C.cheeseW-Math.round(r*0.7),1,PAL.dim);
+    px(sx-2,cy+3,2,2,PAL.bg); px(sx+1,cy+6,2,2,PAL.bg);
   }
   // 脱出のはしご。天井から下がっていて、跳ばないと届かない
   for(const L of S.swLadders){
@@ -870,7 +963,7 @@ function drawSewerScene(){
   px(4,HUD_H+4,gw,5,PAL.bg);
   px(4,HUD_H+4,Math.round(gw*k),5, k>0.7?PAL.warn:PAL.ink);
   px(4,HUD_H+3,gw,1,PAL.dim);
-  if(k>0.7 && Math.floor(S.t*8)%2===0) textC("SHE HEARS YOU",HUD_H+12,PAL.warn);
+  if(k>0.7 && Math.floor(S.t*8)%2===0) textC("SHE FEELS YOU",HUD_H+12,PAL.warn);
 
   let ty=HUD_H+22;
   for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
