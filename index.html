@@ -45,6 +45,9 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 
 <script>
 "use strict";
+/* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
+const BUILD = "0812A";
+
 /* ============================================================
    CONFIG
    ============================================================ */
@@ -100,8 +103,8 @@ const CONFIG = {
   // 捕まってトウカへ行くとこの画面を通らない＝安全な道を選んだ者だけが回復する
   // 落下中はレーンを使わず、押している方向へ緩慢に流れる。1個も取れないこともある
   fall: {
-    duration: 5.0, scroll: 155, gap: 128, y: 0.32,
-    accel: 190, maxVX: 58, drag: 2.2, catchR: 11,
+    duration: 5.0, scroll: 155, gap: 205, y: 0.32,
+    accel: 58, maxVX: 17, drag: 2.2, catchR: 9,
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -533,12 +536,12 @@ function drawActor(e){
   }
 }
 
-/** 監視されている列。画面の下端に小さな目を出すだけ。
+/** 監視されている列。ミナリの視線の先＝画面の上に小さな目を出すだけ。
     列を塗らず、ゲージも出さない ＝ 気づけなかったらアウト */
 function drawWatches(){
   const blink = Math.floor(S.t*6)%2===0;
   for(const w of S.watches){
-    const cx=laneX(w.lane), cy=VH-11;
+    const cx=laneX(w.lane), cy=HUD_H+10;
     ring(cx,cy,7,5,blink?PAL.ink:PAL.dim);
     px(cx-2,cy-2,4,4,PAL.ink);
   }
@@ -620,6 +623,7 @@ function drawTitle(){
   if(Math.floor(S.t*2)%2===0) textC("TAP TO START",286,PAL.ink);
   if(S.startStage>1) textC("DEBUG  START AT ST"+S.startStage,296,PAL.warn);
   textC("BEST "+S.best,306,PAL.dim);
+  text(BUILD, VW-tw(BUILD)-3, VH-8, PAL.off);   // どの版を見ているかの確認用
 }
 function drawOver(){
   px(0,0,VW,VH,PAL.bg);
