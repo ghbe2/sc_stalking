@@ -47,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812G";
+const BUILD = "0812H";
 
 /* ============================================================
    CONFIG
@@ -119,13 +119,12 @@ const CONFIG = {
     groundY: 0.74,          // プレイ領域に対する地面の高さ
     standH: 15, crouchH: 8, bodyW: 10,
 
-    // 蝙蝠は3隊形。ふさぐ高さの帯を変えることで、1つの入力を撃ち分けさせる
-    //   high 伏せてやり過ごす / wall 大きく溜めて飛び越える / slit 中くらいで隙間を抜ける
+    // 蝙蝠は2隊形だけ。ふさぐ高さの帯を変えて、伏せるか跳ぶかを決めさせる。
+    // low は溜めなしの跳躍でも越えられる高さにする（溜め量の精度は要求しない）
     batW: 11, batH: 13, batStack: 13, batDrift: -28,
     batBands: {
       high: [[14, 92]],
-      wall: [[ 0, 46]],
-      slit: [[ 0, 26], [52, 92]],
+      low:  [[ 0, 14]],
     },
     // 跳んだ着地点に次が来ないよう、隊形どうしは必ずこれ以上あける
     batMinGap: 130,
@@ -139,9 +138,6 @@ const CONFIG = {
     // 梯子＝脱出。跳んだうえで「空中でもう一度押す」と掴む。
     // 空中で押す動作は他に何の意味も持たないので、避けたいときは絶対に引っかからない
     ladderDist: 560, ladderW: 15, ladderLo: 22,
-
-    // 上部の奥。次に来るものが左から右へ流れてきて、手前に降りてくる
-    preview: { y: 6, h: 34, range: 620 },
 
     noiseMax: 100, noiseDecay: 4.5,
 
@@ -178,35 +174,33 @@ const PATTERNS = [
 ];
 /* ============================================================
    SEWER — 下水。地面は途切れない
-     bats    : [x, 隊形]  high=伏せる / wall=大きく跳ぶ / slit=中くらいで隙間を抜ける
+     bats    : [x, 隊形]  high=伏せる / low=跳ぶ
      puddles : 踏んでもダメージは無いが、トウカに位置が伝わる。跳べば避けられる
      cheese  : 跳んで取るとスコア
    ※ 隊形どうしは batMinGap 以上あける（跳んだ着地点に次が来ると理不尽になるため）
    ============================================================ */
 const SEWER = [
-  // ── 1隊形ずつ覚える ──
+  // ── 1つずつ覚える ──
   { d:1, len:250, bats:[[140,"high"]], puddles:[],           cheese:[60] },
-  { d:1, len:250, bats:[[140,"wall"]], puddles:[],           cheese:[] },
-  { d:1, len:250, bats:[[140,"slit"]], puddles:[],           cheese:[] },
+  { d:1, len:250, bats:[[140,"low"]],  puddles:[],           cheese:[] },
   { d:1, len:260, bats:[],             puddles:[[120,30]],   cheese:[220] },
-  // ── 2隊形の組み合わせ ──
-  { d:2, len:310, bats:[[80,"high"],[215,"wall"]], puddles:[],         cheese:[] },
-  { d:2, len:310, bats:[[80,"wall"],[215,"high"]], puddles:[],         cheese:[150] },
-  { d:2, len:310, bats:[[80,"slit"],[215,"high"]], puddles:[],         cheese:[] },
+  // ── 組み合わせ ──
+  { d:2, len:310, bats:[[80,"high"],[215,"low"]],  puddles:[],         cheese:[] },
+  { d:2, len:310, bats:[[80,"low"],[215,"high"]],  puddles:[],         cheese:[150] },
   { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32]], cheese:[] },
-  { d:2, len:300, bats:[[200,"wall"]],             puddles:[[95,30]],  cheese:[] },
+  { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30]],  cheese:[] },
   { d:2, len:310, bats:[],                         puddles:[[110,72]], cheese:[245] },
-  // ── 3隊形 ──
-  { d:3, len:440, bats:[[80,"wall"],[215,"slit"],[350,"high"]], puddles:[],         cheese:[] },
-  { d:3, len:440, bats:[[80,"high"],[215,"wall"],[350,"slit"]], puddles:[],         cheese:[150] },
-  { d:3, len:420, bats:[[90,"slit"],[230,"high"]],              puddles:[[330,30]], cheese:[] },
-  { d:3, len:400, bats:[[240,"high"]],                          puddles:[[90,78]],  cheese:[330] },
+  // ── 続けて来る ──
+  { d:3, len:440, bats:[[80,"low"],[215,"high"],[350,"low"]],  puddles:[],         cheese:[] },
+  { d:3, len:440, bats:[[80,"high"],[215,"low"],[350,"high"]], puddles:[],         cheese:[150] },
+  { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30]], cheese:[] },
+  { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78]],  cheese:[330] },
   { d:3, len:380, bats:[],  puddles:[[70,28],[150,28],[230,28]], cheese:[] },
   // ── 密度を上げる ──
-  { d:4, len:560, bats:[[80,"wall"],[215,"high"],[350,"slit"],[485,"wall"]], puddles:[], cheese:[150] },
-  { d:4, len:540, bats:[[80,"slit"],[215,"wall"],[350,"high"],[480,"slit"]], puddles:[], cheese:[] },
-  { d:4, len:460, bats:[[90,"high"],[300,"wall"]], puddles:[[190,74]],       cheese:[] },
-  { d:4, len:480, bats:[[350,"wall"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheese:[] },
+  { d:4, len:560, bats:[[80,"low"],[215,"high"],[350,"low"],[485,"high"]], puddles:[], cheese:[150] },
+  { d:4, len:540, bats:[[80,"high"],[215,"low"],[350,"high"],[480,"low"]], puddles:[], cheese:[] },
+  { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74]],      cheese:[] },
+  { d:4, len:480, bats:[[350,"low"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheese:[] },
 ];
 
 /* 保証則: 各隊形にちょうど1つの正解があり、跳んだ着地点に次が来ないこと */
@@ -228,19 +222,15 @@ function validateSewer(){
     const standOK  = !hits(bands,0,C.standH);
     const y = passable(bands);
     if(standOK) bad.push(`${name}: 走っているだけで抜けられる`);
-    if(name==="high" && !crouchOK) bad.push("high: 伏せても抜けられない");
-    if(name!=="high"){
-      if(crouchOK) bad.push(`${name}: 伏せて抜けられてしまう`);
-      if(y<0) bad.push(`${name}: どう跳んでも抜けられない`);
-      else {
-        const v=Math.sqrt(2*C.gravity*y);
-        const need=(v-C.minJump)/(C.maxJump-C.minJump);
-        if(name==="wall" && need<0.45) bad.push(`wall: 溜めが浅くても越えられる（必要${(need*100).toFixed(0)}%）`);
-        if(name==="slit"){
-          if(minApex >= y) bad.push("slit: 溜めなしで抜けられる（中ジャンプにならない）");
-          if(need>0.45)    bad.push(`slit: 隙間が高すぎて wall と区別がつかない（必要${(need*100).toFixed(0)}%）`);
-        }
-      }
+    if(name==="high"){
+      if(!crouchOK) bad.push("high: 伏せても抜けられない");
+      if(y>=0)      bad.push("high: 跳んで抜けられてしまう（伏せる一択にならない）");
+    } else {
+      if(crouchOK)  bad.push(`${name}: 伏せて抜けられてしまう`);
+      if(y<0)       bad.push(`${name}: どう跳んでも抜けられない`);
+      // 溜め量の精度を要求しない。溜めなしの跳躍で余裕をもって越えられること
+      else if(minApex < y + 6)
+        bad.push(`${name}: 溜めなしでは越えにくい（頂点${minApex.toFixed(0)}px / 必要${y}px）`);
     }
   }
   if(C.cheeseY <= C.standH) bad.push("チーズが低い（走っているだけで取れる）");
@@ -923,45 +913,18 @@ function drawMinariSide(cx,by,crouch){
   px(cx-2,by-h+3,4,2,PAL.bg);                                  // 目
   px(cx+5,by-3,6,2,PAL.ink);                                   // しっぽ
 }
-/** 上部の奥。次に来るものが左から右へ流れてきて、右端に着いた頃に手前へ降りてくる。
-    縦持ちだと前方の見通しが短いので、ここで先を読む */
-function drawPreview(){
-  const C=CONFIG.sewer, PV=C.preview;
-  const y0=HUD_H+PV.y, h=PV.h;
-  px(0,HUD_H,VW,PV.y+h,PAL.off);
-  px(0,HUD_H+PV.y+h-1,VW,1,PAL.dim);
-  for(let i=0;i<7;i++){                                        // 奥へ続く天井のライン
-    const x=VW-((S.swDist*0.35+i*34)%(VW+30));
-    px(x,y0+2,1,h-6,PAL.bg);
-  }
-  const spot = wx => {
-    const d=wx-S.swDist;
-    if(d<0||d>PV.range) return -1;
-    return 4 + (VW-12)*(1-d/PV.range);                         // 遠い=左 / 近い=右
-  };
-  for(const b of S.swBats){
-    const x=spot(b.x); if(x<0) continue;
-    const mid=y0+h/2;
-    if(b.kind==="high"){ px(x,y0+3,5,7,PAL.ink); px(x-1,y0+2,7,1,PAL.ink); }
-    else if(b.kind==="wall"){ px(x,mid,5,9,PAL.ink); px(x-1,mid+9,7,1,PAL.ink); }
-    else { px(x,y0+3,5,5,PAL.ink); px(x,mid+5,5,5,PAL.ink); }   // slit: 上下に分かれて隙間
-  }
-  for(const L of S.swLadders){
-    const x=spot(L.x); if(x<0) continue;
-    for(let k=0;k<4;k++) px(x-1,y0+4+k*5,8,1,PAL.warn);
-    px(x-1,y0+4,1,17,PAL.warn); px(x+6,y0+4,1,17,PAL.warn);
-  }
-  px(VW-3,y0,3,h-1,PAL.dim);                                   // 到着口
-}
-
 function drawSewerScene(){
-  const C=CONFIG.sewer, PV=C.preview;
+  const C=CONFIG.sewer;
   const gy = HUD_H+(VH-HUD_H)*C.groundY;
   const pxs = Math.round(VW*C.playerX);
   const toScreen = wx => pxs + (wx - S.swDist);
 
   px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
-  drawPreview();
+  px(0,HUD_H,VW,5,PAL.dim);                                    // 天井
+  for(let i=0;i<9;i++){
+    const x = VW - ((S.swDist*0.55 + i*27) % (VW+22));
+    px(x,HUD_H+5,1,3,PAL.off);                                 // 天井のしずく
+  }
   // 地面は途切れない
   px(0,gy,VW,2,PAL.ink);
   px(0,gy+2,VW,VH-gy-2,PAL.off);
@@ -997,9 +960,9 @@ function drawSewerScene(){
     const sx=toScreen(L.x)-C.ladderW/2;
     if(sx<-30||sx>VW+30) continue;
     const bottom=gy-C.ladderLo;
-    px(sx,HUD_H+PV.h+4,1,bottom-HUD_H-PV.h-4,PAL.dim);
-    px(sx+C.ladderW-1,HUD_H+PV.h+4,1,bottom-HUD_H-PV.h-4,PAL.dim);
-    for(let y=HUD_H+PV.h+7;y<bottom;y+=7) px(sx,y,C.ladderW,1,PAL.ink);
+    px(sx,HUD_H+6,1,bottom-HUD_H-6,PAL.dim);
+    px(sx+C.ladderW-1,HUD_H+6,1,bottom-HUD_H-6,PAL.dim);
+    for(let y=HUD_H+9;y<bottom;y+=7) px(sx,y,C.ladderW,1,PAL.ink);
     if(Math.floor(S.t*5)%2===0) px(sx+2,bottom-2,C.ladderW-4,2,PAL.warn);
   }
   // 蝙蝠。隊形ごとにふさぐ帯が違う
@@ -1033,7 +996,7 @@ function drawSewerScene(){
   }
 
   // 気配のゲージ。水たまりを踏むたびに跳ね上がり、静かにしていれば薄れる
-  const gTop = HUD_H+PV.y+PV.h+3;
+  const gTop = HUD_H+10;
   const k=clamp(S.swNoise/C.noiseMax,0,1);
   const gw=VW-8;
   px(4,gTop,gw,5,PAL.bg);
