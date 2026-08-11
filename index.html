@@ -47,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812H";
+const BUILD = "0812J";
 
 /* ============================================================
    CONFIG
@@ -55,8 +55,8 @@ const BUILD = "0812H";
 const CONFIG = {
   lanes: 5,
   speed: 68,          // 一定。ミナリの走る速さは変わらない
-  ramp: 80,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
-  watchRamp: 55,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
+  ramp: 52,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
+  watchRamp: 42,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
 
   hearts: 3,
   invuln: 1.3,        // 被弾後の無敵（連続で溶けないように）
@@ -66,7 +66,7 @@ const CONFIG = {
   score: { can: 30, rice: 150 },
 
   // 歩いてくる連中だけが速くなる。落ちているアイテムは速くならない
-  enemySpeed: { far: 1.00, near: 1.70 },
+  enemySpeed: { far: 1.00, near: 2.35 },
 
   watch: {
     lifeFar: 3.0, lifeNear: 6.0,    // 監視が居座る秒数（粘るほど長い）
@@ -130,19 +130,24 @@ const CONFIG = {
     batMinGap: 130,
 
     // 水たまりは踏んでもダメージは無い。ただしトウカに位置が伝わる
-    puddleNoise: 30,
+    puddleNoise: 20,
 
     // チーズ。走っているだけでは届かず、跳べば取れる
     cheeseW: 9, cheeseH: 9, cheeseY: 24, cheeseScore: 60,
 
-    // 梯子＝脱出。跳んだうえで「空中でもう一度押す」と掴む。
-    // 空中で押す動作は他に何の意味も持たないので、避けたいときは絶対に引っかからない
-    ladderDist: 560, ladderW: 15, ladderLo: 22,
+    // 梯子＝脱出。地面からは最大溜めでも届かない高さに吊ってあり、
+    // 手前の段差に乗って、そこから跳ばないと掴めない。降りれば当然届かない
+    ladderDist: 560, ladderW: 15, ladderLo: 86,
+    ledgeH: 26, ledgeW: 76,
 
-    noiseMax: 100, noiseDecay: 4.5,
+    // 段差の上なら楽に取れる高いチーズ。地面からだと大きく溜める必要がある
+    cheeseHiY: 62,
 
-    ramp: 2200,             // この距離をかけて下水そのものが難しくなる
-    speedUp: 0.30,          // 最奥での速度の伸び
+    // 潜るほどトウカは耳を澄ます。気配の引きが遅くなり、いつかは追いつかれる
+    noiseMax: 100, noiseDecayFar: 6.0, noiseDecayNear: 1.8,
+
+    ramp: 1350,             // この距離をかけて下水そのものが難しくなる
+    speedUp: 0.55,          // 最奥での速度の伸び
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -181,26 +186,26 @@ const PATTERNS = [
    ============================================================ */
 const SEWER = [
   // ── 1つずつ覚える ──
-  { d:1, len:250, bats:[[140,"high"]], puddles:[],           cheese:[60] },
-  { d:1, len:250, bats:[[140,"low"]],  puddles:[],           cheese:[] },
-  { d:1, len:260, bats:[],             puddles:[[120,30]],   cheese:[220] },
+  { d:1, len:250, bats:[[140,"high"]], puddles:[[40,26]],       cheese:[210] },
+  { d:1, len:250, bats:[[140,"low"]],  puddles:[[210,26]],      cheese:[] },
+  { d:1, len:260, bats:[],             puddles:[[70,30],[170,30]], cheese:[225] },
   // ── 組み合わせ ──
-  { d:2, len:310, bats:[[80,"high"],[215,"low"]],  puddles:[],         cheese:[] },
-  { d:2, len:310, bats:[[80,"low"],[215,"high"]],  puddles:[],         cheese:[150] },
-  { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32]], cheese:[] },
-  { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30]],  cheese:[] },
-  { d:2, len:310, bats:[],                         puddles:[[110,72]], cheese:[245] },
+  { d:2, len:310, bats:[[80,"high"],[215,"low"]],  puddles:[[150,28]],           cheese:[] },
+  { d:2, len:310, bats:[[80,"low"],[215,"high"]],  puddles:[[150,28]],           cheeseHi:[270] },
+  { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32],[30,26]],   cheese:[] },
+  { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30],[260,26]],   cheese:[] },
+  { d:2, len:310, bats:[],                         puddles:[[110,72],[230,30]],  cheese:[245] },
   // ── 続けて来る ──
-  { d:3, len:440, bats:[[80,"low"],[215,"high"],[350,"low"]],  puddles:[],         cheese:[] },
-  { d:3, len:440, bats:[[80,"high"],[215,"low"],[350,"high"]], puddles:[],         cheese:[150] },
-  { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30]], cheese:[] },
-  { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78]],  cheese:[330] },
-  { d:3, len:380, bats:[],  puddles:[[70,28],[150,28],[230,28]], cheese:[] },
+  { d:3, len:440, bats:[[80,"low"],[215,"high"],[350,"low"]],  puddles:[[150,28],[290,28]], cheese:[] },
+  { d:3, len:440, bats:[[80,"high"],[215,"low"],[350,"high"]], puddles:[[290,30]],  cheeseHi:[150] },
+  { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30],[160,28]], cheese:[] },
+  { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78],[330,28]],  cheese:[] },
+  { d:3, len:380, bats:[],  puddles:[[60,28],[130,28],[200,28],[270,28]], cheese:[] },
   // ── 密度を上げる ──
-  { d:4, len:560, bats:[[80,"low"],[215,"high"],[350,"low"],[485,"high"]], puddles:[], cheese:[150] },
-  { d:4, len:540, bats:[[80,"high"],[215,"low"],[350,"high"],[480,"low"]], puddles:[], cheese:[] },
-  { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74]],      cheese:[] },
-  { d:4, len:480, bats:[[350,"low"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheese:[] },
+  { d:4, len:560, bats:[[80,"low"],[215,"high"],[350,"low"],[485,"high"]], puddles:[[150,28],[420,28]], cheeseHi:[290] },
+  { d:4, len:540, bats:[[80,"high"],[215,"low"],[350,"high"],[480,"low"]], puddles:[[150,26],[290,26],[420,26]], cheese:[] },
+  { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74],[380,28]],  cheese:[] },
+  { d:4, len:480, bats:[[350,"low"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheeseHi:[420] },
 ];
 
 /* 保証則: 各隊形にちょうど1つの正解があり、跳んだ着地点に次が来ないこと */
@@ -235,7 +240,18 @@ function validateSewer(){
   }
   if(C.cheeseY <= C.standH) bad.push("チーズが低い（走っているだけで取れる）");
   if(C.cheeseY > head)      bad.push("チーズが高い（最大溜めでも届かない）");
-  if(C.ladderLo <= C.standH) bad.push("梯子が低い（走っていて触れてしまう）");
+  // 梯子は地面からは絶対に届かず、段差の上からなら届くこと
+  if(C.ladderLo <= head)
+    bad.push(`梯子が低い（地面からの最大到達${head.toFixed(0)}px で届いてしまう）`);
+  if(C.ladderLo > C.ledgeH + head)
+    bad.push(`梯子が高い（段差${C.ledgeH}px からでも届かない）`);
+  if(C.ladderLo <= C.ledgeH + C.standH)
+    bad.push("梯子が低い（段差に立っているだけで触れてしまう）");
+  // 高いチーズは、段差の上なら楽で、地面からだと大きく溜める必要があること
+  if(C.cheeseHiY <= C.ledgeH + C.standH)
+    bad.push("高いチーズが低い（段差に立っているだけで取れる）");
+  if(C.cheeseHiY > head)
+    bad.push("高いチーズが高い（地面からはどうやっても取れない）");
 
   const closing = (C.speed + Math.abs(C.batDrift)) / C.speed;
   SEWER.forEach((p,i)=>{
@@ -260,7 +276,7 @@ function validateSewer(){
           bad.push(`SEWER${i}: 隊形@${b[0]}の着地点に水たまり@${q[0]}`);
       });
     });
-    [...p.cheese, ...p.bats.map(b=>b[0])].forEach(x=>{
+    [...(p.cheese||[]), ...(p.cheeseHi||[]), ...p.bats.map(b=>b[0])].forEach(x=>{
       if(x<20 || x>p.len-20) bad.push(`SEWER${i}: 端に寄りすぎ (${x})`);
     });
   });
@@ -305,8 +321,8 @@ const S = {
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
-  swBats:[], swPuddles:[], swItems:[], swLadders:[],
-  swCursor:0, swNoise:0, swNextLadder:0, swGrab:false,
+  swBats:[], swPuddles:[], swItems:[], swLadders:[], swLedges:[],
+  swCursor:0, swNoise:0, swNextLadder:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
@@ -532,6 +548,11 @@ function updateFall(dt){
 /** 下水の深さ 0..1。潜るほど地形が険しくなる */
 const swHeat = () => clamp(S.swDist/CONFIG.sewer.ramp, 0, 1);
 const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.20+swHeat()*CONFIG.sewer.speedUp);
+/** その位置の地面の高さ。段差の上なら段差の高さ */
+function groundAt(x){
+  for(const L of S.swLedges) if(x>L.x0 && x<L.x1) return L.h;
+  return 0;
+}
 function fillSewer(){
   const tier = 1 + swHeat()*3;
   while(S.swCursor < S.swDist + VW*2.4){
@@ -546,31 +567,38 @@ function fillSewer(){
       S.swBats.push({x: at + drift*lead, kind:b[1], dead:false});
     }
     for(const q of p.puddles) S.swPuddles.push({x0:S.swCursor+q[0], x1:S.swCursor+q[0]+q[1], wet:false});
-    for(const x of p.cheese)  S.swItems.push({x:S.swCursor+x, dead:false});
+    for(const x of (p.cheese||[])) S.swItems.push({x:S.swCursor+x, hi:false, dead:false});
+    for(const x of (p.cheeseHi||[])) S.swItems.push({x:S.swCursor+x, hi:true, dead:false});
     S.swCursor += p.len;
   }
   // 梯子は掴みに行かないと掴めないので、隊形と重ならなければよい。
   // 蝙蝠は向かって飛んでくるので、いまの位置ではなく「プレイヤーと出会う位置」で見る
   const meet = bx => S.swDist + (bx-S.swDist)*swSpeed()/(swSpeed()+Math.abs(CONFIG.sewer.batDrift));
   const clear = x => !S.swBats.some(b=>Math.abs(meet(b.x)-x)<70);
+  // 梯子は必ず段差とセットで置く。段差に乗らないと届かない高さに吊ってあるので、
+  // 「乗る → そこから跳ぶ」が揃わないかぎり掴めない
+  const C=CONFIG.sewer;
   while(S.swNextLadder < S.swDist + VW*2.0){
     let x=S.swNextLadder, ok=false;
     for(let i=0;i<80;i++){
-      if(x > S.swCursor-140) break;      // 生成済みの範囲を出たら置かない
-      if(clear(x)){ ok=true; break; }
+      if(x+C.ledgeW > S.swCursor-140) break;   // 生成済みの範囲を出たら置かない
+      if(clear(x) && clear(x+C.ledgeW)){ ok=true; break; }
       x+=12;
     }
-    if(!ok) break;                       // 空きが見つからなければ次の生成に持ち越す
-    S.swLadders.push({x, dead:false});
-    S.swNextLadder = x + CONFIG.sewer.ladderDist;
+    if(!ok) break;                             // 空きが見つからなければ次の生成に持ち越す
+    S.swLedges.push({x0:x, x1:x+C.ledgeW, h:C.ledgeH});
+    S.swLadders.push({x:x+C.ledgeW*0.74, dead:false});
+    // 段差の上には高いチーズも置く。梯子を取らなくても、乗る価値がある
+    S.swItems.push({x:x+C.ledgeW*0.3, hi:true, dead:false});
+    S.swNextLadder = x + C.ladderDist;
   }
 }
 
 function enterSewer(){
   S.scene="sewer";
   S.swDist=0; S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0; S.swHeld=false;
-  S.swBats=[]; S.swPuddles=[]; S.swItems=[]; S.swLadders=[];
-  S.swCursor=0; S.swNoise=0; S.swGrab=false;
+  S.swBats=[]; S.swPuddles=[]; S.swItems=[]; S.swLadders=[]; S.swLedges=[];
+  S.swCursor=0; S.swNoise=0;
   S.swNextLadder=CONFIG.sewer.ladderDist*0.8; S.invuln=1.0;
   fillSewer();
 }
@@ -582,9 +610,10 @@ function updateSewer(dt){
   S.invuln = Math.max(0,S.invuln-dt);
   fillSewer();
 
-  // 静かにしていれば、伝わった気配は薄れていく
-  S.swNoise = Math.max(0, S.swNoise - C.noiseDecay*dt);
+  // 静かにしていれば気配は薄れる。ただし潜るほど薄れ方が鈍くなる
+  S.swNoise = Math.max(0, S.swNoise - lerp(C.noiseDecayFar, C.noiseDecayNear, swHeat())*dt);
 
+  const floor = groundAt(S.swDist);
   if(S.swGround){
     if(held) S.swCharge = Math.min(C.maxCharge, S.swCharge+dt);
     else if(S.swHeld){                       // 放した瞬間に跳ぶ
@@ -592,10 +621,14 @@ function updateSewer(dt){
       S.swCharge = 0; S.swGround = false;
       S.swY += S.swVY*dt;                    // その場で浮かせる。1フレーム棒立ちにしない
     }
+    if(S.swGround){
+      if(floor > S.swY) S.swY = floor;                       // 段差に乗り上げる
+      else if(floor < S.swY){ S.swGround=false; S.swVY=0; }  // 段差の端から落ちる
+    }
   } else {
     S.swVY -= C.gravity*dt;
     S.swY  += S.swVY*dt;
-    if(S.swY<=0){ S.swY=0; S.swVY=0; S.swGround=true; }
+    if(S.swY<=floor){ S.swY=floor; S.swVY=0; S.swGround=true; }
   }
   S.swHeld = held;
 
@@ -634,21 +667,20 @@ function updateSewer(dt){
       toast("蝙蝠");
     }
   }
-  // チーズ。走っているだけでは届かない
+  // チーズ。走っているだけでは届かない。高いほうは段差に乗れば楽に取れる
   for(const it of S.swItems){
     if(it.dead) continue;
     if(Math.abs(it.x-S.swDist) > (C.bodyW+C.cheeseW)/2) continue;
-    if(S.swY+h >= C.cheeseY && S.swY <= C.cheeseY+C.cheeseH){
+    const cy = it.hi ? C.cheeseHiY : C.cheeseY;
+    if(S.swY+h >= cy && S.swY <= cy+C.cheeseH){
       it.dead=true; S.score += C.cheeseScore; toast("+"+C.cheeseScore);
     }
   }
-  // 梯子は「跳んだうえで、空中でもう一度押す」と掴む。
-  // 空中で押す動作は他に何の意味も持たないので、避けたいときは絶対に引っかからない
-  S.swGrab = !S.swGround && held;
+  // 梯子は地面からは届かない高さ。段差に乗って、そこから跳んだときだけ手が届く
   for(const L of S.swLadders){
     if(L.dead) continue;
     if(Math.abs(L.x-S.swDist) > (C.bodyW+C.ladderW)/2) continue;
-    if(S.swGrab && S.swY+h >= C.ladderLo){ L.dead=true; S.stage++; return enterAlley(); }
+    if(S.swY+h >= C.ladderLo){ L.dead=true; S.stage++; return enterAlley(); }
   }
 
   const back = S.swDist-VW;
@@ -656,6 +688,7 @@ function updateSewer(dt){
   S.swPuddles = S.swPuddles.filter(q=>q.x1 > back);
   S.swItems   = S.swItems.filter(i=>!i.dead && i.x > back);
   S.swLadders = S.swLadders.filter(L=>!L.dead && L.x > back);
+  S.swLedges  = S.swLedges.filter(L=>L.x1 > back);
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -932,6 +965,17 @@ function drawSewerScene(){
     const x=VW-((S.swDist*1.0+i*26)%(VW+26));
     px(x,gy+5,10,1,PAL.dim);                                   // 床のタイル目地
   }
+  // 段差。ここに乗らないと梯子にも高いチーズにも届かない
+  for(const L of S.swLedges){
+    const x0=Math.max(-4,toScreen(L.x0)), x1=Math.min(VW+4,toScreen(L.x1));
+    if(x1<=0||x0>=VW) continue;
+    const ty=gy-L.h, w=x1-x0;
+    px(x0,ty,w,2,PAL.ink);                                     // 天面
+    px(x0,ty+2,w,L.h-2,PAL.off);
+    for(let y=ty+5;y<gy;y+=6) px(x0+2,y,Math.max(0,w-4),1,PAL.dim);
+    if(toScreen(L.x0)>-2) px(x0,ty,2,L.h,PAL.ink);             // 手前の角
+    if(toScreen(L.x1)<VW+2) px(x1-2,ty,2,L.h,PAL.ink);         // 奥の角
+  }
   // 水たまり。床がくぼんで水が溜まっている。縁を濃く、中を明るく、さざ波を流す
   for(const q of S.swPuddles){
     const x0=Math.max(0,toScreen(q.x0)), x1=Math.min(VW,toScreen(q.x1));
@@ -951,7 +995,7 @@ function drawSewerScene(){
   for(const it of S.swItems){
     const sx=toScreen(it.x);
     if(sx<-14||sx>VW+14) continue;
-    const cy=gy-C.cheeseY-C.cheeseH;
+    const cy=gy-(it.hi?C.cheeseHiY:C.cheeseY)-C.cheeseH;
     for(let r=0;r<C.cheeseH;r++) px(sx-4+Math.round(r*0.35),cy+r,C.cheeseW-Math.round(r*0.7),1,PAL.dim);
     px(sx-2,cy+3,2,2,PAL.bg); px(sx+1,cy+6,2,2,PAL.bg);
   }
