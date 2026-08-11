@@ -47,7 +47,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812J";
+const BUILD = "0812K";
 
 /* ============================================================
    CONFIG
@@ -135,13 +135,14 @@ const CONFIG = {
     // チーズ。走っているだけでは届かず、跳べば取れる
     cheeseW: 9, cheeseH: 9, cheeseY: 24, cheeseScore: 60,
 
-    // 梯子＝脱出。地面からは最大溜めでも届かない高さに吊ってあり、
-    // 手前の段差に乗って、そこから跳ばないと掴めない。降りれば当然届かない
-    ladderDist: 560, ladderW: 15, ladderLo: 86,
-    ledgeH: 26, ledgeW: 76,
+    // 梯子＝脱出。地面からは最大溜めでも届かない高さに吊ってある。
+    // 手前に浮いた足場があり、そこに跳び乗って、さらに跳ばないと掴めない。
+    // 足場は一方通行（下は素通りできる）ので、乗るか下を行くかを選べる
+    ladderDist: 560, ladderW: 15, ladderLo: 84,
+    platH: 40, platW: 78, platThick: 4,
 
-    // 段差の上なら楽に取れる高いチーズ。地面からだと大きく溜める必要がある
-    cheeseHiY: 62,
+    // 足場に乗れば手に入る高いチーズ。地面からだと大きく溜める必要がある
+    cheeseHiY: 52,
 
     // 潜るほどトウカは耳を澄ます。気配の引きが遅くなり、いつかは追いつかれる
     noiseMax: 100, noiseDecayFar: 6.0, noiseDecayNear: 1.8,
@@ -240,18 +241,24 @@ function validateSewer(){
   }
   if(C.cheeseY <= C.standH) bad.push("チーズが低い（走っているだけで取れる）");
   if(C.cheeseY > head)      bad.push("チーズが高い（最大溜めでも届かない）");
-  // 梯子は地面からは絶対に届かず、段差の上からなら届くこと
+  // 足場は地面から跳んで乗れること。乗らずに下を走り抜けられること（一方通行）
+  if(C.platH > apex) bad.push(`足場が高い（最大溜めの頂点${apex.toFixed(0)}px では乗れない）`);
+  if(C.platH <= minApex)
+    bad.push(`足場が低い（溜めなしの頂点${minApex.toFixed(0)}px で乗れてしまい、選択にならない）`);
+  // 梯子は地面からは絶対に届かず、足場の上からなら届くこと
   if(C.ladderLo <= head)
     bad.push(`梯子が低い（地面からの最大到達${head.toFixed(0)}px で届いてしまう）`);
-  if(C.ladderLo > C.ledgeH + head)
-    bad.push(`梯子が高い（段差${C.ledgeH}px からでも届かない）`);
-  if(C.ladderLo <= C.ledgeH + C.standH)
-    bad.push("梯子が低い（段差に立っているだけで触れてしまう）");
-  // 高いチーズは、段差の上なら楽で、地面からだと大きく溜める必要があること
-  if(C.cheeseHiY <= C.ledgeH + C.standH)
-    bad.push("高いチーズが低い（段差に立っているだけで取れる）");
+  if(C.ladderLo > C.platH + head)
+    bad.push(`梯子が高い（足場${C.platH}px からでも届かない）`);
+  if(C.ladderLo <= C.platH + C.standH)
+    bad.push("梯子が低い（足場に立っているだけで触れてしまう）");
+  // 高いチーズは、足場に乗れば手に入り、地面からだと大きく溜める必要があること
+  if(C.cheeseHiY > C.platH + C.standH)
+    bad.push("高いチーズが高い（足場に乗っても届かない）");
   if(C.cheeseHiY > head)
     bad.push("高いチーズが高い（地面からはどうやっても取れない）");
+  if(C.cheeseHiY <= C.cheeseY)
+    bad.push("高いチーズが低い（通常のチーズと変わらない）");
 
   const closing = (C.speed + Math.abs(C.batDrift)) / C.speed;
   SEWER.forEach((p,i)=>{
@@ -321,7 +328,7 @@ const S = {
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
-  swBats:[], swPuddles:[], swItems:[], swLadders:[], swLedges:[],
+  swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
   swCursor:0, swNoise:0, swNextLadder:0,
   hearts:CONFIG.hearts, invuln:0,
   lane:2, laneF:2,
@@ -548,10 +555,10 @@ function updateFall(dt){
 /** 下水の深さ 0..1。潜るほど地形が険しくなる */
 const swHeat = () => clamp(S.swDist/CONFIG.sewer.ramp, 0, 1);
 const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.20+swHeat()*CONFIG.sewer.speedUp);
-/** その位置の地面の高さ。段差の上なら段差の高さ */
-function groundAt(x){
-  for(const L of S.swLedges) if(x>L.x0 && x<L.x1) return L.h;
-  return 0;
+/** その位置に浮いている足場（一方通行。下からは通り抜ける） */
+function platAt(x){
+  for(const P of S.swPlats) if(x>P.x0 && x<P.x1) return P;
+  return null;
 }
 function fillSewer(){
   const tier = 1 + swHeat()*3;
@@ -575,21 +582,22 @@ function fillSewer(){
   // 蝙蝠は向かって飛んでくるので、いまの位置ではなく「プレイヤーと出会う位置」で見る
   const meet = bx => S.swDist + (bx-S.swDist)*swSpeed()/(swSpeed()+Math.abs(CONFIG.sewer.batDrift));
   const clear = x => !S.swBats.some(b=>Math.abs(meet(b.x)-x)<70);
-  // 梯子は必ず段差とセットで置く。段差に乗らないと届かない高さに吊ってあるので、
-  // 「乗る → そこから跳ぶ」が揃わないかぎり掴めない
+  // 梯子は必ず浮いた足場とセットで置く。足場に乗らないと届かない高さに吊ってあるので、
+  // 「跳び乗る → そこからさらに跳ぶ」が揃わないかぎり掴めない。
+  // 足場は一方通行なので、乗らずに下を走り抜けることもできる
   const C=CONFIG.sewer;
   while(S.swNextLadder < S.swDist + VW*2.0){
     let x=S.swNextLadder, ok=false;
     for(let i=0;i<80;i++){
-      if(x+C.ledgeW > S.swCursor-140) break;   // 生成済みの範囲を出たら置かない
-      if(clear(x) && clear(x+C.ledgeW)){ ok=true; break; }
+      if(x+C.platW > S.swCursor-140) break;   // 生成済みの範囲を出たら置かない
+      if(clear(x) && clear(x+C.platW)){ ok=true; break; }
       x+=12;
     }
-    if(!ok) break;                             // 空きが見つからなければ次の生成に持ち越す
-    S.swLedges.push({x0:x, x1:x+C.ledgeW, h:C.ledgeH});
-    S.swLadders.push({x:x+C.ledgeW*0.74, dead:false});
-    // 段差の上には高いチーズも置く。梯子を取らなくても、乗る価値がある
-    S.swItems.push({x:x+C.ledgeW*0.3, hi:true, dead:false});
+    if(!ok) break;                            // 空きが見つからなければ次の生成に持ち越す
+    S.swPlats.push({x0:x, x1:x+C.platW, y:C.platH});
+    S.swLadders.push({x:x+C.platW*0.74, dead:false});
+    // 足場の上には高いチーズも置く。梯子を取らなくても、乗る価値がある
+    S.swItems.push({x:x+C.platW*0.34, hi:true, dead:false});
     S.swNextLadder = x + C.ladderDist;
   }
 }
@@ -597,7 +605,7 @@ function fillSewer(){
 function enterSewer(){
   S.scene="sewer";
   S.swDist=0; S.swY=0; S.swVY=0; S.swGround=true; S.swCharge=0; S.swHeld=false;
-  S.swBats=[]; S.swPuddles=[]; S.swItems=[]; S.swLadders=[]; S.swLedges=[];
+  S.swBats=[]; S.swPuddles=[]; S.swItems=[]; S.swLadders=[]; S.swPlats=[];
   S.swCursor=0; S.swNoise=0;
   S.swNextLadder=CONFIG.sewer.ladderDist*0.8; S.invuln=1.0;
   fillSewer();
@@ -613,7 +621,6 @@ function updateSewer(dt){
   // 静かにしていれば気配は薄れる。ただし潜るほど薄れ方が鈍くなる
   S.swNoise = Math.max(0, S.swNoise - lerp(C.noiseDecayFar, C.noiseDecayNear, swHeat())*dt);
 
-  const floor = groundAt(S.swDist);
   if(S.swGround){
     if(held) S.swCharge = Math.min(C.maxCharge, S.swCharge+dt);
     else if(S.swHeld){                       // 放した瞬間に跳ぶ
@@ -621,14 +628,21 @@ function updateSewer(dt){
       S.swCharge = 0; S.swGround = false;
       S.swY += S.swVY*dt;                    // その場で浮かせる。1フレーム棒立ちにしない
     }
-    if(S.swGround){
-      if(floor > S.swY) S.swY = floor;                       // 段差に乗り上げる
-      else if(floor < S.swY){ S.swGround=false; S.swVY=0; }  // 段差の端から落ちる
+    // 足場の上に立っていて、その端を越えたら落ちる
+    if(S.swGround && S.swY>0){
+      const p=platAt(S.swDist);
+      if(!p || Math.abs(p.y-S.swY)>1){ S.swGround=false; S.swVY=0; }
     }
   } else {
     S.swVY -= C.gravity*dt;
-    S.swY  += S.swVY*dt;
-    if(S.swY<=floor){ S.swY=floor; S.swVY=0; S.swGround=true; }
+    const prevY = S.swY;
+    S.swY += S.swVY*dt;
+    // 一方通行。降りてくるときに上面をまたいだ場合だけ乗る（下からは通り抜ける）
+    if(S.swVY<0){
+      const p=platAt(S.swDist);
+      if(p && prevY>=p.y && S.swY<=p.y){ S.swY=p.y; S.swVY=0; S.swGround=true; }
+    }
+    if(!S.swGround && S.swY<=0){ S.swY=0; S.swVY=0; S.swGround=true; }
   }
   S.swHeld = held;
 
@@ -688,7 +702,7 @@ function updateSewer(dt){
   S.swPuddles = S.swPuddles.filter(q=>q.x1 > back);
   S.swItems   = S.swItems.filter(i=>!i.dead && i.x > back);
   S.swLadders = S.swLadders.filter(L=>!L.dead && L.x > back);
-  S.swLedges  = S.swLedges.filter(L=>L.x1 > back);
+  S.swPlats   = S.swPlats.filter(P=>P.x1 > back);
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
@@ -965,16 +979,16 @@ function drawSewerScene(){
     const x=VW-((S.swDist*1.0+i*26)%(VW+26));
     px(x,gy+5,10,1,PAL.dim);                                   // 床のタイル目地
   }
-  // 段差。ここに乗らないと梯子にも高いチーズにも届かない
-  for(const L of S.swLedges){
-    const x0=Math.max(-4,toScreen(L.x0)), x1=Math.min(VW+4,toScreen(L.x1));
+  // 浮いた足場。下は素通りできるので、乗るか下を行くかを選べる
+  for(const P of S.swPlats){
+    const x0=Math.max(-4,toScreen(P.x0)), x1=Math.min(VW+4,toScreen(P.x1));
     if(x1<=0||x0>=VW) continue;
-    const ty=gy-L.h, w=x1-x0;
+    const ty=gy-P.y, w=x1-x0;
     px(x0,ty,w,2,PAL.ink);                                     // 天面
-    px(x0,ty+2,w,L.h-2,PAL.off);
-    for(let y=ty+5;y<gy;y+=6) px(x0+2,y,Math.max(0,w-4),1,PAL.dim);
-    if(toScreen(L.x0)>-2) px(x0,ty,2,L.h,PAL.ink);             // 手前の角
-    if(toScreen(L.x1)<VW+2) px(x1-2,ty,2,L.h,PAL.ink);         // 奥の角
+    px(x0,ty+2,w,C.platThick-2,PAL.dim);
+    for(let i=0;i<Math.floor(w/10);i++) px(x0+3+i*10,ty+C.platThick,3,1,PAL.off);  // 裏の桟
+    if(toScreen(P.x0)>-2) px(x0,ty,1,C.platThick+3,PAL.ink);   // 手前の端
+    if(toScreen(P.x1)<VW+2) px(x1-1,ty,1,C.platThick+3,PAL.ink);
   }
   // 水たまり。床がくぼんで水が溜まっている。縁を濃く、中を明るく、さざ波を流す
   for(const q of S.swPuddles){
