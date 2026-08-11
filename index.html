@@ -40,6 +40,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
   <button id="tStage">開始ステージ: 1</button>
   <button id="tFall">落下を見る</button>
   <button id="tSewer">下水を見る</button>
+  <button id="tClimb">昇りを見る</button>
   <button id="tDbg">DEBUG</button>
   <pre id="debug"></pre>
 </div>
@@ -47,7 +48,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812L";
+const BUILD = "0812M";
 
 /* ============================================================
    CONFIG
@@ -149,6 +150,17 @@ const CONFIG = {
 
     ramp: 1350,             // この距離をかけて下水そのものが難しくなる
     speedUp: 0.55,          // 最奥での速度の伸び
+  },
+
+  // 梯子を昇る場面。連打で登る。ここが下水から地上へ戻るときの回復の機会。
+  // 先を行く別の鼠が同じおにぎりを狙っていて、先に着いたほうが food を取る。
+  // 追いかける相手が画面に映っているので、急ぐ理由が数字ではなく絵で分かる
+  climb: {
+    total: 800, auto: 55, perTap: 22,       // 連打なしでも約15秒で登りきる
+    rivalSpeed: 120, rivalStart: 0.08,
+    rivalPause: 1.2,                        // 餌を食べている間は止まる＝こちらの付け入る隙
+    items: [0.40, 0.75],
+    y: 0.62,                                // ミナリの画面上の位置
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -326,6 +338,7 @@ const S = {
   scene:"title",            // title | play | falling | over
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
+  climbY:0, climbRival:0, climbItems:[], climbT:0, climbEat:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
   swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
@@ -447,6 +460,7 @@ function onDown(e){
   const p=e.touches?e.touches[0]:e;
   touch.down=true; touch.holdT=0; touch.reps=0; touch.showT=.4;
   touch.x=p.clientX; touch.y=p.clientY;
+  edge.tap=true;                                  // 昇りの連打で使う
   if(S.scene==="title"||S.scene==="over"){ edge.start=true; return; }
   const r=cv.getBoundingClientRect();
   touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
@@ -473,7 +487,7 @@ const KEYMAP={ArrowLeft:"left",ArrowRight:"right",KeyA:"left",KeyD:"right",
 addEventListener("keydown",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
   if(n==="left"&&!keys.left){keys.left=true;edge.left=true;}
   if(n==="right"&&!keys.right){keys.right=true;edge.right=true;}
-  if(n==="hold"&&!keys.hold){keys.hold=true;edge.start=true;}   // 下水では押しっぱなし＝しゃがみ
+  if(n==="hold"&&!keys.hold){keys.hold=true;edge.start=true;edge.tap=true;}  // 下水では押しっぱなし＝しゃがみ
   if(n==="start")edge.start=true;});
 addEventListener("keyup",e=>{const n=KEYMAP[e.code];if(!n)return;e.preventDefault();
   if(n==="left")keys.left=false; if(n==="right")keys.right=false; if(n==="hold")keys.hold=false;});
@@ -545,6 +559,38 @@ function updateFall(dt){
     }
   }
   if(S.fallT>=F.duration) enterSewer();
+}
+
+/* ------------------------------------------------------------
+   梯子を昇る — 下水から地上へ戻る場面。連打で登る。
+   先を行く別の鼠が同じおにぎりを狙っている。速ければ追い越して先に食える
+   ------------------------------------------------------------ */
+function enterClimb(){
+  const C=CONFIG.climb;
+  S.scene="climb"; S.climbY=0; S.climbT=0; S.healed=0; S.climbEat=0;
+  S.climbRival = C.rivalStart*C.total;
+  S.climbItems = C.items.map(h=>({h:h*C.total, who:0}));   // 0=まだ 1=ミナリ 2=相手
+}
+function updateClimb(dt){
+  const C=CONFIG.climb;
+  S.climbT += dt;
+  if(edge.tap) S.climbY += C.perTap;
+  S.climbY += C.auto*dt;
+  if(S.climbEat>0) S.climbEat -= dt;          // 相手が食べている間は止まっている
+  else S.climbRival += C.rivalSpeed*dt;
+
+  for(const it of S.climbItems){
+    if(it.who) continue;
+    const meGot = S.climbY>=it.h, rivalGot = S.climbRival>=it.h;
+    if(meGot && (!rivalGot || S.climbY>=S.climbRival)){
+      it.who=1;
+      if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); }
+      else { S.score += CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
+    } else if(rivalGot){
+      it.who=2; S.climbEat=C.rivalPause; toast("取られた");
+    }
+  }
+  if(S.climbY>=C.total){ S.stage++; enterAlley(); }
 }
 
 /* ------------------------------------------------------------
@@ -696,7 +742,7 @@ function updateSewer(dt){
   for(const L of S.swLadders){
     if(L.dead) continue;
     if(Math.abs(L.x-S.swDist) > (C.bodyW+C.ladderW)/2) continue;
-    if(S.swY+h >= C.ladderLo){ L.dead=true; S.stage++; return enterAlley(); }
+    if(S.swY+h >= C.ladderLo){ L.dead=true; return enterClimb(); }
   }
 
   const back = S.swDist-VW;
@@ -778,6 +824,7 @@ function update(dt){
   S.toasts=S.toasts.filter(t=>t.life>0);
   if(S.scene==="falling") return updateFall(dt);
   if(S.scene==="sewer")   return updateSewer(dt);
+  if(S.scene==="climb")   return updateClimb(dt);
   if(S.scene!=="play"){ if(edge.start) startRun(); return; }
   updatePlay(dt);
 }
@@ -965,6 +1012,67 @@ function drawMinariSide(cx,by,crouch){
   px(cx-2,by-h+3,4,2,PAL.bg);                                  // 目
   px(cx+5,by-3,6,2,PAL.ink);                                   // しっぽ
 }
+/** 梯子を昇る。連打で登る。先を行く鼠と、途中のおにぎりの取り合い */
+function drawClimb(){
+  const C=CONFIG.climb;
+  const py = HUD_H+(VH-HUD_H)*C.y;
+  const toY = h => py - (h - S.climbY);          // 高いものほど画面の上
+  const lx = Math.round(VW*0.36), rx = Math.round(VW*0.70);
+
+  px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
+  px(0,HUD_H,VW,3,PAL.dim);
+  // 縦穴の壁
+  for(let y=HUD_H;y<VH;y+=8){
+    const o=Math.round((S.climbY*0.5+y)%8);
+    px(2,y+o,4,2,PAL.off); px(VW-6,y+o,4,2,PAL.off);
+  }
+  // 梯子（ミナリ側）と、相手が登る配管
+  px(lx-8,HUD_H,2,VH-HUD_H,PAL.dim); px(lx+7,HUD_H,2,VH-HUD_H,PAL.dim);
+  for(let h=Math.floor(S.climbY/26)*26-52; h<S.climbY+VH; h+=26){
+    const y=toY(h); if(y>HUD_H-4 && y<VH+4) px(lx-8,y,17,2,PAL.ink);
+  }
+  px(rx-4,HUD_H,3,VH-HUD_H,PAL.off);
+  for(let h=Math.floor(S.climbY/40)*40-80; h<S.climbY+VH; h+=40){
+    const y=toY(h); if(y>HUD_H-4 && y<VH+4) px(rx-6,y,7,2,PAL.dim);
+  }
+  // 出口の明かり
+  const topY=toY(C.total);
+  if(topY<VH+20){
+    px(0,Math.max(HUD_H,topY-16),VW,Math.max(0,Math.min(VH,topY)-Math.max(HUD_H,topY-16)),PAL.off);
+    px(0,topY,VW,3,PAL.ink);
+  }
+  // おにぎり
+  for(const it of S.climbItems){
+    if(it.who) continue;
+    const y=toY(it.h), x=lx+13;
+    if(y<HUD_H-12||y>VH+12) continue;
+    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+    px(x-3,y-3,6,3,PAL.ink);
+  }
+  // 先を行く鼠
+  const ry=toY(S.climbRival);
+  if(ry>HUD_H-16 && ry<VH+16){
+    const wig=Math.floor(S.t*10)%2?1:-1;
+    px(rx-4,ry-12,9,12,PAL.dim);
+    px(rx-6,ry-16,4,5,PAL.dim); px(rx+2,ry-16,4,5,PAL.dim);
+    px(rx-1,ry+wig,3,5,PAL.dim);
+  }
+  // ミナリ
+  const wig=Math.floor(S.t*12)%2?1:-1;
+  px(lx-5,py-15,10,15,PAL.ink);
+  px(lx-8,py-20,5,6,PAL.ink); px(lx+3,py-20,5,6,PAL.ink);
+  px(lx-2,py-12,4,2,PAL.bg);
+  px(lx-1,py+wig,3,6,PAL.ink);
+
+  textC("TAP TO CLIMB",HUD_H+6,PAL.dim);
+  // 残りの高さ
+  const k=clamp(S.climbY/C.total,0,1);
+  px(VW-7,HUD_H+16,4,VH-HUD_H-30,PAL.bg);
+  px(VW-7,HUD_H+16+Math.round((VH-HUD_H-30)*(1-k)),4,3,PAL.ink);
+  let ty=HUD_H+16;
+  for(const t of S.toasts){ text(t.txt.slice(0,10),4,ty,PAL.ink); ty+=8; }
+}
+
 function drawSewerScene(){
   const C=CONFIG.sewer;
   const gy = HUD_H+(VH-HUD_H)*C.groundY;
@@ -1122,6 +1230,7 @@ function render(){
   else if(S.scene==="over") drawOver();
   else if(S.scene==="falling"){ drawFall(); drawHUD(); }
   else if(S.scene==="sewer"){ drawSewerScene(); drawHUD(); }
+  else if(S.scene==="climb"){ drawClimb(); drawHUD(); }
   else { drawAlley(); drawHUD(); }
   ctx.restore();
 }
@@ -1155,6 +1264,10 @@ document.getElementById("tFall").onclick=()=>{
 document.getElementById("tSewer").onclick=()=>{
   if(S.scene==="title"||S.scene==="over") startRun();
   enterSewer();
+};
+document.getElementById("tClimb").onclick=()=>{
+  if(S.scene==="title"||S.scene==="over") startRun();
+  enterClimb();
 };
 function updateDebug(){
   if(!CONFIG.debug){ if(dbg.textContent) dbg.textContent=""; return; }
