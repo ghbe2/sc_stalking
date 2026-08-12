@@ -49,7 +49,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813B";
+const BUILD = "0813C";
 
 /* ============================================================
    CONFIG
@@ -478,8 +478,8 @@ function onDown(e){
   if(S.scene==="title"||S.scene==="over"){ edge.start=true; return; }
   const r=cv.getBoundingClientRect();
   touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
-  // 路地は 1 タップ 1 列。落下は touch.dir を押しっぱなしで使うので edge は立てない
-  if(S.scene==="play") edge[touch.dir<0?"left":"right"]=true;
+  // 路地とトウカは 1 タップ 1 列。落下は touch.dir を押しっぱなしで使うので edge は立てない
+  if(S.scene==="play"||S.scene==="touka") edge[touch.dir<0?"left":"right"]=true;
 }
 function onMove(e){ if(!touch.down)return; const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; }
 function onUp(){ touch.down=false; touch.dir=0; }
@@ -1110,61 +1110,67 @@ function drawMinariSide(cx,by,crouch){
 /** トウカフェーズ。奥にトウカ、手前にミナリ。指差した列に網が飛んでくる */
 function drawTouka(){
   const C=CONFIG.touka;
-  const lw = VW/C.lanes, lx = l => lw*(l+0.5);
-  const top = HUD_H+8, py = VH-34;
+  const horizon = HUD_H+18;                 // 奥。ここにトウカが立っている
+  const py = VH-14;                         // ミナリの足元。画面いっぱいに使う
+  // t=0 が奥、t=1 が手前。奥ほど列が中央に寄る
+  const lx = (l,t) => lerp(VW/2, VW/C.lanes*(l+0.5), lerp(0.26,1,t));
 
   px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
-  // 奥へ続く路地。手前へ逃げているので、線は広がりながら降りてくる
-  const off=(S.tkT*90)%22;
+  // 奥へ伸びる路地の壁と、流れる路面
   for(let i=0;i<=C.lanes;i++){
-    const xb=lw*i, xt=lerp(VW/2,xb,0.42);
-    for(let y=top+34;y<VH;y+=4){
-      const t=(y-top-34)/(VH-top-34);
-      px(lerp(xt,xb,t), y+off%4, 1, 2, PAL.off);
+    for(let y=horizon;y<VH;y+=3){
+      const t=(y-horizon)/(VH-horizon);
+      px(lerp(VW/2, VW/C.lanes*i, lerp(0.26,1,t)), y, 1, 2, PAL.off);
     }
   }
+  const off=(S.tkT*120)%30;
+  for(let d=0;d<7;d++){
+    const t=clamp(((d*30+off)/210),0,1), y=lerp(horizon,VH,t*t);
+    if(y>horizon+2) px(lerp(VW/2,0,t), y, Math.round(VW*t), 1, PAL.off);
+  }
 
-  // トウカ。ナマズのお嬢様。自分では動かず、指だけ差す
-  const cx=VW/2, ty=top+26;
-  px(cx-13,ty-16,26,20,PAL.ink);                       // 髪／頭
-  px(cx-18,ty-2,36,2,PAL.ink); px(cx-15,ty+2,30,2,PAL.ink);   // ヒゲ
-  px(cx-8,ty-10,5,5,PAL.bg); px(cx+3,ty-10,5,5,PAL.bg);       // 目
-  px(cx-11,ty+4,22,14,PAL.ink);                        // ドレスの肩
-  for(let i=0;i<7;i++) px(cx-11-i, ty+18+i*2, 22+i*2, 2, PAL.ink);  // 裾
-  // ヤツメウナギの侍従
-  lamprey(cx-24, ty+6, 1.4); lamprey(cx+30, ty+9, 1.4); lamprey(cx-30, ty+18, 1);
+  // トウカ。奥に小さく立っている。自分では動かず、指だけ差す
+  const cx=VW/2, ty=horizon+16;
+  px(cx-7,ty-11,14,11,PAL.ink);                              // 髪と頭
+  px(cx-10,ty-4,20,1,PAL.ink); px(cx-8,ty-1,16,1,PAL.ink);   // ヒゲ
+  px(cx-4,ty-7,3,3,PAL.bg); px(cx+2,ty-7,3,3,PAL.bg);        // 目
+  px(cx-6,ty,12,7,PAL.ink);                                  // 肩
+  for(let i=0;i<4;i++) px(cx-6-i, ty+7+i*2, 12+i*2, 2, PAL.ink);  // 裾
+  lamprey(cx-14, ty+2, 1); lamprey(cx+18, ty+5, 1);
 
-  // 指差し。差した列へ腕が伸びる
+  // 指差し。差した列へ腕が伸び、その列の奥に着弾の帯が出る
   if(S.tkPoint>=0){
-    const tx=lx(S.tkPoint), sx=cx+(tx>cx?11:-11), sy=ty+8;
-    const n=10;
-    for(let i=0;i<=n;i++){
-      const t=i/n;
-      px(lerp(sx,lerp(sx,tx,0.55),t), lerp(sy,sy+16,t), 3, 3, PAL.ink);
+    const tx=lx(S.tkPoint,0.30), sx=cx+(tx>cx?7:-7);
+    for(let i=0;i<=8;i++){
+      const t=i/8;
+      px(lerp(sx,tx,t), lerp(ty+2, ty+9, t), 2, 2, PAL.ink);
     }
     if(Math.floor(S.t*12)%2===0){
-      px(tx-lw/2+3, top+46, lw-6, 2, PAL.warn);
-      px(tx-2, top+50, 4, 4, PAL.warn);
+      const w=Math.round((VW/C.lanes)*0.6);
+      px(lx(S.tkPoint,0.42)-w/2, horizon+30, w, 2, PAL.warn);
     }
   }
 
-  // 網
+  // 網。奥から手前へ、近づくほど大きくなる
   for(const net of S.tkNets){
     if(net.age < net.tele || net.hit) continue;
     const t=(net.age-net.tele)/C.netFly;
-    const x=lx(net.lane), y=lerp(top+40, py, t), r=Math.round(lerp(5,13,t));
-    ring(x,y,r,r*0.7,PAL.ink,2);
-    for(let i=-1;i<=1;i++) px(x+i*Math.round(r*0.55), y-Math.round(r*0.5), 1, r, PAL.ink);
+    const x=lx(net.lane,t), y=lerp(horizon+26, py-24, t*t), r=Math.round(lerp(4,22,t*t));
+    ring(x,y,r,r*0.72,PAL.ink,2);
+    for(let i=-1;i<=1;i++) px(x+i*Math.round(r*0.5), y-Math.round(r*0.6), 1, Math.round(r*1.2), PAL.ink);
     px(x-r, y, r*2, 1, PAL.ink);
   }
 
-  // ミナリ（こちらへ走ってくるので後ろ姿）
-  const mx=lx(S.tkLaneF);
-  px(mx-6,py-16,12,16,PAL.ink);
-  px(mx-9,py-21,5,6,PAL.ink); px(mx+4,py-21,5,6,PAL.ink);
-  px(mx-1,py-4,3,7,PAL.ink);
-  const wig=Math.floor(S.t*14)%2?1:-1;
-  px(mx-6,py,4,3,PAL.ink); px(mx+2,py+wig,4,3,PAL.ink);
+  // ミナリ。こちらへ走ってくる後ろ姿。画面の主役なので大きく
+  const mx=lx(S.tkLaneF,1), wig=Math.floor(S.t*12)%2?1:-1;
+  const bw=24, bh=34;
+  px(mx-bw/2, py-bh, bw, bh-6, PAL.ink);                     // 体
+  px(mx-bw/2-5, py-bh-9, 10, 12, PAL.ink);                   // 耳
+  px(mx+bw/2-5, py-bh-9, 10, 12, PAL.ink);
+  px(mx-4, py-bh+7, 8, 4, PAL.bg);                           // 背中の抜き
+  px(mx-3, py-9, 6, 13, PAL.ink);                            // しっぽ
+  px(mx-bw/2+2, py-6, 8, 6+wig, PAL.ink);                    // 足
+  px(mx+bw/2-10, py-6, 8, 6-wig, PAL.ink);
 
   // 残り時間
   const left=Math.max(0,C.surviveTime-S.tkT);
