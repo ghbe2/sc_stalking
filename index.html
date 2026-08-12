@@ -41,6 +41,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
   <button id="tFall">落下を見る</button>
   <button id="tSewer">下水を見る</button>
   <button id="tClimb">昇りを見る</button>
+  <button id="tTouka">トウカを見る</button>
   <button id="tDbg">DEBUG</button>
   <pre id="debug"></pre>
 </div>
@@ -48,7 +49,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813A";
+const BUILD = "0813B";
 
 /* ============================================================
    CONFIG
@@ -160,6 +161,19 @@ const CONFIG = {
     swarmStart: -110, swarmSpeed: 110, swarmAccel: 14,
     items: [0.40, 0.75],
     y: 0.62,                                // ミナリの画面上の位置
+  },
+
+  // トウカフェーズ。奥から手前へ逃げる。捕まったら即 GAME OVER、逃げ切れば大きな報酬。
+  // トウカは自分で追わない。指を差した列に、ヤツメウナギが網を飛ばす。
+  // つまり「指差し」がそのまま着弾予告になっている
+  touka: {
+    lanes: 3,
+    surviveTime: 15,
+    throwFar: 1.9, throwNear: 0.72,  // 網の間隔（秒）。逃げるほど詰まる
+    telegraphFar: 0.62, telegraphNear: 0.30,  // 指差しの長さ。終盤ほど読む時間が短い
+    netFly: 0.42,                    // 飛んでくる時間
+    doubleAt: 0.55,                  // これ以降、2列を同時に指すことがある
+    bonus: 2500,
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -338,6 +352,7 @@ const S = {
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   climbY:0, climbSwarm:0, climbItems:[], climbT:0,
+  tkT:0, tkLane:1, tkLaneF:1, tkNets:[], tkNext:0, tkPoint:-1,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
   swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
@@ -592,6 +607,63 @@ function updateClimb(dt){
 }
 
 /* ------------------------------------------------------------
+   トウカフェーズ — 奥から手前へ逃げる。捕まったら即 GAME OVER。
+   トウカは自分で追わず、指を差すだけ。差された列にヤツメウナギが網を飛ばす
+   ------------------------------------------------------------ */
+function enterTouka(){
+  const C=CONFIG.touka;
+  S.scene="touka"; S.tkT=0; S.tkNets=[]; S.tkPoint=-1;
+  S.tkLane=S.tkLaneF=Math.floor(C.lanes/2);
+  S.tkNext=0.9;
+  S.flash=0.6; S.shake=4;
+}
+function updateTouka(dt){
+  const C=CONFIG.touka;
+  S.tkT += dt;
+  const k = clamp(S.tkT/C.surviveTime, 0, 1);
+
+  // 移動は路地と同じ。触れた側へ1列ずつ
+  holdRepeat(dt);
+  if(edge.left)  S.tkLane = clamp(S.tkLane-1, 0, C.lanes-1);
+  if(edge.right) S.tkLane = clamp(S.tkLane+1, 0, C.lanes-1);
+  S.tkLaneF += (S.tkLane-S.tkLaneF)*clamp(CONFIG.player.laneSpeed*dt,0,1);
+
+  // 指差し → 網。逃げるほど間隔が詰まり、指差しも短くなる。終盤は2列を同時に指す
+  const tele = lerp(C.telegraphFar, C.telegraphNear, k);
+  S.tkNext -= dt;
+  if(S.tkNext<=0){
+    // まだ当たっていない網は、飛行中でも「塞がっている列」として数える。
+    // ここを予告中だけで数えると、全列が同時に塞がる瞬間ができてしまう
+    const busy = S.tkNets.filter(n=>!n.hit).map(n=>n.lane);
+    const free = [];
+    for(let l=0;l<C.lanes;l++) if(!busy.includes(l)) free.push(l);
+    let n = (k>=C.doubleAt && rnd()<0.45) ? 2 : 1;
+    n = Math.min(n, free.length-1);                   // 逃げ場を必ず1列は残す
+    while(n-- > 0 && free.length){
+      S.tkNets.push({ lane: free.splice(Math.floor(rnd()*free.length),1)[0], age:0, tele });
+    }
+    S.tkNext = lerp(C.throwFar, C.throwNear, k)*(0.85+rnd()*0.3);
+  }
+
+  S.tkPoint = -1;
+  for(const net of S.tkNets){
+    net.age += dt;
+    if(net.age < net.tele) S.tkPoint = net.lane;      // 指差し中
+    if(!net.hit && net.age >= net.tele + C.netFly){
+      net.hit = true;
+      if(net.lane === S.tkLane) return finish("touka");
+      S.shake = Math.max(S.shake, 2.5);
+    }
+  }
+  S.tkNets = S.tkNets.filter(n=>n.age < n.tele+C.netFly+0.35);
+
+  if(S.tkT >= C.surviveTime){
+    S.score += C.bonus; toast("+"+C.bonus);
+    S.stage++; enterAlley();
+  }
+}
+
+/* ------------------------------------------------------------
    下水 — 横スクロール。入力は1つだけ
      押しっぱなし = しゃがむ（＋ジャンプを溜める） / 放す = 溜めたぶん跳ぶ
    しゃがみ続ければ必ず跳ぶことになるので、いつ放すかがそのまま判断になる
@@ -702,7 +774,7 @@ function updateSewer(dt){
     }
   }
   // 気配が積もりきると、トウカに位置を掴まれる
-  if(S.swNoise >= C.noiseMax) return finish("touka");
+  if(S.swNoise >= C.noiseMax) return enterTouka();
 
   // 水に落ちた
   if(S.swY < -34){
@@ -764,7 +836,7 @@ function updateWatches(dt){
   if(watched(S.lane)) S.seen += dt;
   else                S.seen = Math.max(0, S.seen - dt*CONFIG.watch.cool);
 
-  if(S.seen >= CONFIG.watch.catch){ S.bang=1; finish("touka"); return true; }
+  if(S.seen >= CONFIG.watch.catch){ enterTouka(); return true; }
   return false;
 }
 
@@ -823,6 +895,7 @@ function update(dt){
   if(S.scene==="falling") return updateFall(dt);
   if(S.scene==="sewer")   return updateSewer(dt);
   if(S.scene==="climb")   return updateClimb(dt);
+  if(S.scene==="touka")   return updateTouka(dt);
   if(S.scene!=="play"){ if(edge.start) startRun(); return; }
   updatePlay(dt);
 }
@@ -1034,6 +1107,72 @@ function drawMinariSide(cx,by,crouch){
   px(cx-2,by-h+3,4,2,PAL.bg);                                  // 目
   px(cx+5,by-3,6,2,PAL.ink);                                   // しっぽ
 }
+/** トウカフェーズ。奥にトウカ、手前にミナリ。指差した列に網が飛んでくる */
+function drawTouka(){
+  const C=CONFIG.touka;
+  const lw = VW/C.lanes, lx = l => lw*(l+0.5);
+  const top = HUD_H+8, py = VH-34;
+
+  px(0,HUD_H,VW,VH-HUD_H,PAL.bg);
+  // 奥へ続く路地。手前へ逃げているので、線は広がりながら降りてくる
+  const off=(S.tkT*90)%22;
+  for(let i=0;i<=C.lanes;i++){
+    const xb=lw*i, xt=lerp(VW/2,xb,0.42);
+    for(let y=top+34;y<VH;y+=4){
+      const t=(y-top-34)/(VH-top-34);
+      px(lerp(xt,xb,t), y+off%4, 1, 2, PAL.off);
+    }
+  }
+
+  // トウカ。ナマズのお嬢様。自分では動かず、指だけ差す
+  const cx=VW/2, ty=top+26;
+  px(cx-13,ty-16,26,20,PAL.ink);                       // 髪／頭
+  px(cx-18,ty-2,36,2,PAL.ink); px(cx-15,ty+2,30,2,PAL.ink);   // ヒゲ
+  px(cx-8,ty-10,5,5,PAL.bg); px(cx+3,ty-10,5,5,PAL.bg);       // 目
+  px(cx-11,ty+4,22,14,PAL.ink);                        // ドレスの肩
+  for(let i=0;i<7;i++) px(cx-11-i, ty+18+i*2, 22+i*2, 2, PAL.ink);  // 裾
+  // ヤツメウナギの侍従
+  lamprey(cx-24, ty+6, 1.4); lamprey(cx+30, ty+9, 1.4); lamprey(cx-30, ty+18, 1);
+
+  // 指差し。差した列へ腕が伸びる
+  if(S.tkPoint>=0){
+    const tx=lx(S.tkPoint), sx=cx+(tx>cx?11:-11), sy=ty+8;
+    const n=10;
+    for(let i=0;i<=n;i++){
+      const t=i/n;
+      px(lerp(sx,lerp(sx,tx,0.55),t), lerp(sy,sy+16,t), 3, 3, PAL.ink);
+    }
+    if(Math.floor(S.t*12)%2===0){
+      px(tx-lw/2+3, top+46, lw-6, 2, PAL.warn);
+      px(tx-2, top+50, 4, 4, PAL.warn);
+    }
+  }
+
+  // 網
+  for(const net of S.tkNets){
+    if(net.age < net.tele || net.hit) continue;
+    const t=(net.age-net.tele)/C.netFly;
+    const x=lx(net.lane), y=lerp(top+40, py, t), r=Math.round(lerp(5,13,t));
+    ring(x,y,r,r*0.7,PAL.ink,2);
+    for(let i=-1;i<=1;i++) px(x+i*Math.round(r*0.55), y-Math.round(r*0.5), 1, r, PAL.ink);
+    px(x-r, y, r*2, 1, PAL.ink);
+  }
+
+  // ミナリ（こちらへ走ってくるので後ろ姿）
+  const mx=lx(S.tkLaneF);
+  px(mx-6,py-16,12,16,PAL.ink);
+  px(mx-9,py-21,5,6,PAL.ink); px(mx+4,py-21,5,6,PAL.ink);
+  px(mx-1,py-4,3,7,PAL.ink);
+  const wig=Math.floor(S.t*14)%2?1:-1;
+  px(mx-6,py,4,3,PAL.ink); px(mx+2,py+wig,4,3,PAL.ink);
+
+  // 残り時間
+  const left=Math.max(0,C.surviveTime-S.tkT);
+  textC("RUN  "+left.toFixed(1), HUD_H+2, PAL.warn);
+  const gw=VW-8, k=clamp(S.tkT/C.surviveTime,0,1);
+  px(4,VH-7,gw,4,PAL.bg); px(4,VH-7,Math.round(gw*k),4,PAL.ink);
+}
+
 /** 梯子を昇る。連打で登る。先を行く鼠と、途中のおにぎりの取り合い */
 function drawClimb(){
   const C=CONFIG.climb;
@@ -1231,10 +1370,13 @@ function drawTitle(){
 function drawOver(){
   px(0,0,VW,VH,PAL.bg);
   const spotted = S.end==="touka";
-  textC(spotted?"SPOTTED !":"GAME OVER", 52, PAL.warn);
+  textC(spotted?"CAUGHT !":"GAME OVER", 52, PAL.warn);
   if(spotted){
-    ring(VW/2,112,9,7,PAL.ink,2); px(VW/2-3,110,6,6,PAL.ink);
-    textC("TOUKA SCREEN",150,PAL.dim); textC("NOT BUILT YET",162,PAL.off);
+    const cx=VW/2, ty=118;
+    px(cx-13,ty-16,26,20,PAL.ink);
+    px(cx-18,ty-2,36,2,PAL.ink); px(cx-15,ty+2,30,2,PAL.ink);
+    px(cx-8,ty-10,5,5,PAL.bg); px(cx+3,ty-10,5,5,PAL.bg);
+    textC("TOUKA HAS YOU",150,PAL.dim);
   } else {
     for(let i=0;i<CONFIG.hearts;i++) heart(VW/2-13+i*9,110,PAL.bg);
     textC("NO HEARTS LEFT",150,PAL.dim);
@@ -1256,6 +1398,7 @@ function render(){
   else if(S.scene==="falling"){ drawFall(); drawHUD(); }
   else if(S.scene==="sewer"){ drawSewerScene(); drawHUD(); }
   else if(S.scene==="climb"){ drawClimb(); drawHUD(); }
+  else if(S.scene==="touka"){ drawTouka(); drawHUD(); }
   else { drawAlley(); drawHUD(); }
   ctx.restore();
 }
@@ -1293,6 +1436,10 @@ document.getElementById("tSewer").onclick=()=>{
 document.getElementById("tClimb").onclick=()=>{
   if(S.scene==="title"||S.scene==="over") startRun();
   enterClimb();
+};
+document.getElementById("tTouka").onclick=()=>{
+  if(S.scene==="title"||S.scene==="over") startRun();
+  enterTouka();
 };
 function updateDebug(){
   if(!CONFIG.debug){ if(dbg.textContent) dbg.textContent=""; return; }
