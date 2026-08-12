@@ -61,7 +61,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813I";
+const BUILD = "0813J";
 
 /* ============================================================
    CONFIG
@@ -187,10 +187,10 @@ const CONFIG = {
     surviveTime: 15,
     // 投げは1回ずつ完結する。予告 → 飛翔 → 着弾 → 間、で1周期。
     // ここは「着弾してから次の予告までの間」で、周期そのものではない
-    restFar: 1.05, restNear: 0.12,
-    telegraphFar: 0.62, telegraphNear: 0.20,  // 指差しの長さ。終盤ほど読む時間が短い
+    restFar: 1.05, restNear: 0.18,
+    telegraphFar: 0.62, telegraphNear: 0.30,  // 指差しの長さ。終盤ほど読む時間が短い
     // 飛翔も終盤ほど速くする。網が速くなれば、避けから戻るのも同じだけ速くなる
-    netFlyFar: 0.46, netFlyNear: 0.20,
+    netFlyFar: 0.46, netFlyNear: 0.28,
     doubleAt: 0.55,                  // これ以降、2列を同時に指すことがある
     bonus: 2500,
 
