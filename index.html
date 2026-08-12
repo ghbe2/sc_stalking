@@ -61,7 +61,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813F";
+const BUILD = "0813G";
 
 /* ============================================================
    CONFIG
@@ -141,6 +141,9 @@ const CONFIG = {
       high: [[14, 92]],
       low:  [[ 0, 14]],
     },
+    // 「伏せる→跳ぶ」だけは持ち替えが要る。押しっぱなしを一度切って、
+    // 跳ぶために溜め直す間が要るので、他の並びより広くあける
+    batSwapGap: 200,
     // 跳んだ着地点に次が来ないよう、隊形どうしは必ずこれ以上あける
     batMinGap: 130,
 
@@ -330,20 +333,21 @@ const SEWER = [
   { d:1, len:250, bats:[[140,"low"]],  puddles:[[210,26]],      cheese:[] },
   { d:1, len:260, bats:[],             puddles:[[70,30],[170,30]], cheese:[225] },
   // ── 組み合わせ ──
-  { d:2, len:310, bats:[[80,"high"],[215,"low"]],  puddles:[[150,28]],           cheese:[] },
+  { d:2, len:330, bats:[[80,"high"],[300,"low"]],  puddles:[[180,28]],           cheese:[] },
   { d:2, len:310, bats:[[80,"low"],[215,"high"]],  puddles:[[150,28]],           cheeseHi:[270] },
   { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32],[30,26]],   cheese:[] },
   { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30],[260,26]],   cheese:[] },
   { d:2, len:310, bats:[],                         puddles:[[110,72],[230,30]],  cheese:[245] },
   // ── 続けて来る ──
-  { d:3, len:440, bats:[[80,"low"],[215,"high"],[350,"low"]],  puddles:[[150,28],[290,28]], cheese:[] },
-  { d:3, len:440, bats:[[80,"high"],[215,"low"],[350,"high"]], puddles:[[290,30]],  cheeseHi:[150] },
+  { d:3, len:480, bats:[[70,"low"],[210,"high"],[420,"low"]],  puddles:[[150,28],[300,28]], cheese:[] },
+  { d:3, len:490, bats:[[70,"high"],[290,"low"],[430,"high"]], puddles:[[180,30]],  cheeseHi:[150] },
   { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30],[160,28]], cheese:[] },
   { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78],[330,28]],  cheese:[] },
   { d:3, len:380, bats:[],  puddles:[[60,28],[130,28],[200,28],[270,28]], cheese:[] },
   // ── 密度を上げる ──
-  { d:4, len:560, bats:[[80,"low"],[215,"high"],[350,"low"],[485,"high"]], puddles:[[150,28],[420,28]], cheeseHi:[290] },
-  { d:4, len:540, bats:[[80,"high"],[215,"low"],[350,"high"],[480,"low"]], puddles:[[150,26],[290,26],[420,26]], cheese:[] },
+  { d:4, len:620, bats:[[70,"low"],[210,"high"],[430,"low"],[570,"high"]], puddles:[[150,28],[300,28]], cheeseHi:[280] },
+  // 伏せっぱなしで抜ける譜面。持ち替えを迫らないぶん、密度で押す
+  { d:4, len:520, bats:[[80,"high"],[260,"high"],[440,"high"]], puddles:[[170,26],[350,26]], cheese:[] },
   { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74],[380,28]],  cheese:[] },
   { d:4, len:480, bats:[[350,"low"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheeseHi:[420] },
 ];
@@ -405,6 +409,14 @@ function validateSewer(){
     xs.forEach((x,k)=>{
       if(k>0 && x-xs[k-1] < C.batMinGap)
         bad.push(`SEWER${i}: 隊形@${xs[k-1]}と@${x}が近い（${(x-xs[k-1])}px < ${C.batMinGap}px）`);
+    });
+    // 伏せた直後に跳べ、は繋ぎ目がきつい。この並びだけ広い間隔を要求する
+    const ord = [...p.bats].sort((a,b)=>a[0]-b[0]);
+    ord.forEach((b,k)=>{
+      if(k===0) return;
+      const prev = ord[k-1];
+      if(prev[1]==="high" && b[1]==="low" && b[0]-prev[0] < C.batSwapGap)
+        bad.push(`SEWER${i}: 伏せる@${prev[0]}→跳ぶ@${b[0]}が近い（${b[0]-prev[0]}px < ${C.batSwapGap}px）`);
     });
     p.bats.forEach(b=>{ if(!C.batBands[b[1]]) bad.push(`SEWER${i}: 未知の隊形 ${b[1]}`); });
     // 跳び越えられない水たまりは、跳ぼうとしないよう十分広いこと（中途半端を作らない）
