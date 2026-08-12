@@ -61,7 +61,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813G";
+const BUILD = "0813H";
 
 /* ============================================================
    CONFIG
@@ -190,6 +190,19 @@ const CONFIG = {
     netFly: 0.42,                    // 飛んでくる時間
     doubleAt: 0.55,                  // これ以降、2列を同時に指すことがある
     bonus: 2500,
+
+    // 逃げ方が路地とは違う。列を移り住むのではなく、真ん中を定位置にして
+    // 「ひょい」と横へ避け、勝手に戻ってくる。居座れないので、避けるのは一瞬だけ
+    // 避けている時間は固定にしない。固定だと「予告の頭で避けた人ほど、網が届く前に
+    // 戻されて当たる」という逆転が起きる。いま飛んでいる網を必ず跨ぐ長さを、
+    // そのときの予告の長さから決める（＝早く反応しても損をしない）
+    dodgeMargin: 0.15,  // 着弾のあと、これだけ余分に避けていられる
+    dodgeSpeed: 30,     // 横へ抜ける速さ。路地（16）より機敏に
+
+    // 定位置が真ん中なので、そこを突かないと「何もしなくていい」時間になる。
+    // 逆に両脇を同時に指されたら、動かないことが正解になる
+    centerBias: 0.62,   // 1本のとき、真ん中を狙う率
+    pairCenter: 0.72,   // 2本のとき、片方を真ん中にする率（残りは両脇＝待つのが正解）
   },
 
   stageTime: 22,      // デバッグのステージ選択で 1 ステージぶんとみなす秒数
@@ -479,6 +492,7 @@ const S = {
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   climbY:0, climbSwarm:0, climbItems:[], climbT:0,
   tkT:0, tkLane:1, tkLaneF:1, tkNets:[], tkNext:0, tkPoints:[],
+  tkDodge:0, tkDodgeT:0, tkDodgeMax:1,  // 避けている向き（-1/0/1）と、居られる残り／全体の秒数
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
   swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
@@ -739,6 +753,7 @@ function updateClimb(dt){
 function enterTouka(){
   const C=CONFIG.touka;
   S.scene="touka"; S.tkT=0; S.tkNets=[]; S.tkPoints=[];
+  S.tkDodge=0; S.tkDodgeT=0; S.tkDodgeMax=1; S.tkLane=1; S.tkLaneF=1;
   S.tkLane=S.tkLaneF=Math.floor(C.lanes/2);
   S.tkNext=0.9;
   S.flash=0.6; S.shake=4;
@@ -748,14 +763,19 @@ function updateTouka(dt){
   S.tkT += dt;
   const k = clamp(S.tkT/C.surviveTime, 0, 1);
 
-  // 移動は路地と同じ。触れた側へ1列ずつ
-  holdRepeat(dt);
-  if(edge.left)  S.tkLane = clamp(S.tkLane-1, 0, C.lanes-1);
-  if(edge.right) S.tkLane = clamp(S.tkLane+1, 0, C.lanes-1);
-  S.tkLaneF += (S.tkLane-S.tkLaneF)*clamp(CONFIG.player.laneSpeed*dt,0,1);
+  // 逃げ方は路地と別物にする。列を移り住むのではなく、真ん中が定位置で、
+  // 触れた側へ「ひょい」と避け、時間が切れると勝手に戻ってくる。
+  // 押しっぱなしで居座られると元の遊びに戻ってしまうので holdRepeat は使わない
+  const mid = (C.lanes-1)>>1;
+  const tele = lerp(C.telegraphFar, C.telegraphNear, k);
+  const dodgeFor = tele + C.netFly + C.dodgeMargin;
+  if(edge.left)  { S.tkDodge=-1; S.tkDodgeT=dodgeFor; S.tkDodgeMax=dodgeFor; }
+  if(edge.right) { S.tkDodge= 1; S.tkDodgeT=dodgeFor; S.tkDodgeMax=dodgeFor; }
+  if(S.tkDodgeT>0){ S.tkDodgeT-=dt; if(S.tkDodgeT<=0) S.tkDodge=0; }
+  S.tkLane = mid + S.tkDodge;
+  S.tkLaneF += (S.tkLane-S.tkLaneF)*clamp(C.dodgeSpeed*dt,0,1);
 
   // 指差し → 網。逃げるほど間隔が詰まり、指差しも短くなる。終盤は2列を同時に指す
-  const tele = lerp(C.telegraphFar, C.telegraphNear, k);
   S.tkNext -= dt;
   if(S.tkNext<=0){
     // まだ当たっていない網は、飛行中でも「塞がっている列」として数える。
@@ -765,6 +785,12 @@ function updateTouka(dt){
     for(let l=0;l<C.lanes;l++) if(!busy.includes(l)) free.push(l);
     let n = (k>=C.doubleAt && rnd()<0.45) ? 2 : 1;
     n = Math.min(n, free.length-1);                   // 逃げ場を必ず1列は残す
+    // 真ん中が定位置なので、そこを突かないと「見ているだけ」の時間になる。
+    // 2本のときに真ん中を外すと、両脇が塞がって「動かないのが正解」になる
+    if(n>0 && free.includes(mid) && rnd() < (n===1 ? C.centerBias : C.pairCenter)){
+      S.tkNets.push({ lane: mid, age:0, tele });
+      free.splice(free.indexOf(mid),1); n--;
+    }
     while(n-- > 0 && free.length){
       S.tkNets.push({ lane: free.splice(Math.floor(rnd()*free.length),1)[0], age:0, tele });
     }
@@ -1317,8 +1343,20 @@ function drawTouka(){
     px(x-r, y, r*2, 1, PAL.warn);
   }
 
+  // 定位置は真ん中。避けても勝手にここへ戻るので、戻り先を床に示しておく
+  const mid=(C.lanes-1)>>1, hw=Math.round((VW/C.lanes)*0.46);
+  const hx=lx(mid,1);
+  px(hx-hw/2, py+3, hw, 1, PAL.off);
+  px(hx-hw/2, py+1, 2, 3, PAL.off); px(hx+hw/2-2, py+1, 2, 3, PAL.off);
+
   // ミナリ。こちらへ走ってくるので正面。画面の主役なので大きく
   const mx=lx(S.tkLaneF,1), wig=Math.floor(S.t*12)%2?1:0;
+
+  // 避けていられる残り時間。足元が細っていくので、戻される前に読める
+  if(S.tkDodgeT>0){
+    const w=Math.round(22*clamp(S.tkDodgeT/S.tkDodgeMax,0,1));
+    if(w>1) px(mx-w/2, py+5, w, 2, PAL.aqua);
+  }
   blit(SPR.minariFront, mx, py+wig, Math.floor(S.t*12)%4>1);
 
   // 残り時間
