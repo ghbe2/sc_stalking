@@ -21,6 +21,17 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#000}
 body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-action:none}
 #screen{position:fixed;inset:0;width:100%;height:100%;display:block;
   image-rendering:pixelated;image-rendering:crisp-edges}
+/* ドットマトリクスの格子と、画面ガラスの映り込み。
+   キャンバスには一切触れないので、色数の規律はそのまま保たれる */
+#glass{
+  position:fixed;inset:0;z-index:2;pointer-events:none;
+  --px:3px;
+  background-image:
+    repeating-linear-gradient(to right,  rgba(56,32,47,.22) 0 1px, rgba(0,0,0,0) 1px var(--px)),
+    repeating-linear-gradient(to bottom, rgba(56,32,47,.22) 0 1px, rgba(0,0,0,0) 1px var(--px)),
+    radial-gradient(120% 85% at 50% 8%, rgba(255,255,255,.20), rgba(0,0,0,0) 55%),
+    radial-gradient(130% 100% at 50% 50%, rgba(0,0,0,0) 52%, rgba(48,26,40,.30) 100%);
+}
 #devToggle{position:fixed;top:calc(6px + env(safe-area-inset-top));right:6px;z-index:3;
   width:24px;height:24px;border:none;border-radius:6px;background:rgba(0,0,0,.25);
   color:rgba(255,255,255,.45);font:13px/24px system-ui;text-align:center;cursor:pointer}
@@ -34,6 +45,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 </head>
 <body>
 <canvas id="screen"></canvas>
+<div id="glass"></div>
 <button id="devToggle">≡</button>
 <div id="dev">
   <input id="tSeed" placeholder="seed" spellcheck="false">
@@ -49,7 +61,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813C";
+const BUILD = "0813D";
 
 /* ============================================================
    CONFIG
@@ -182,8 +194,18 @@ const CONFIG = {
   seed: null, debug: false,
 };
 
-/* 液晶パレット。濃淡4段のみ、中間色は持たない */
-const PAL = { bg:"#e8cfdd", off:"#dcbccf", dim:"#a8778f", ink:"#4a2338", warn:"#7d2b4e" };
+/* 液晶パレット。中間色は持たないが、モノクロは卒業して役割ごとに色を振る。
+   格子（ドットマトリクス）はCSS側で重ねるので、ここは色だけを決める */
+const PAL = {
+  bg:   "#eddae3",   // 液晶の地
+  off:  "#d2b4c4",   // 地の影
+  dim:  "#96697f",   // 中間
+  ink:  "#38202f",   // 主線・シルエット
+  warn: "#c4384f",   // 危険（網・警告・ハート）
+  gold: "#c08628",   // 拾えるもの
+  aqua: "#3d7c94",   // 水
+  plum: "#6b3d84",   // トウカとヤツメウナギ
+};
 
 /* ============================================================
    PATTERNS — 歩いてくる人だけ（アイテム・女・マンホールは別枠で湧かせる）
@@ -914,6 +936,9 @@ function resize(){
   cv.width=VW; cv.height=VH;
   ctx.imageSmoothingEnabled=false;
   playerY=HUD_H+(VH-HUD_H)*CONFIG.player.y;
+  // 格子の目を、実際の1ドットの大きさに合わせる
+  const glass=document.getElementById("glass");
+  if(glass) glass.style.setProperty("--px", (h/VH)+"px");
 }
 addEventListener("resize",resize);
 
@@ -989,10 +1014,10 @@ function drawActor(e){
       break;
     }
     case "can":                                   // 空き缶: 縦長
-      px(x-3,y-9,7,9,PAL.dim); px(x-3,y-9,7,1,PAL.ink); px(x-3,y-1,7,1,PAL.ink);
+      px(x-3,y-9,7,9,PAL.gold); px(x-3,y-9,7,1,PAL.ink); px(x-3,y-1,7,1,PAL.ink);
       break;
     case "rice":                                  // おにぎり: 三角＋海苔
-      for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+      for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.gold);
       px(x-3,y-3,6,3,PAL.ink);
       break;
     case "man":   figure(x,y,A.w,A.h,PAL.ink); break;
@@ -1004,9 +1029,9 @@ function drawActor(e){
 /** ヤツメウナギ。トウカの部下。細長い体と、丸い吸盤の口 */
 function lamprey(x,y,wr){
   const w=Math.round(3+2*(wr||1));
-  px(x,y,3,3,PAL.ink);                 // 頭（吸盤）
+  px(x,y,3,3,PAL.plum);                // 頭（吸盤）
   px(x+1,y+1,1,1,PAL.bg);
-  for(let i=0;i<4;i++) px(x-2-i*2, y+Math.round(Math.sin(i*1.4+S.t*9)*1.2), 2, 2, PAL.ink);
+  for(let i=0;i<4;i++) px(x-2-i*2, y+Math.round(Math.sin(i*1.4+S.t*9)*1.2), 2, 2, PAL.plum);
   if(w>5) px(x-9,y,2,1,PAL.dim);
 }
 
@@ -1015,8 +1040,8 @@ function drawStalkBar(top, k, label){
   k = clamp(k,0,1);
   // 左端にトウカと、仕えるヤツメウナギ。ゲージが溜まるほどヤツメウナギが騒ぐ
   const cy=top+2;
-  px(2,cy-3,8,8,PAL.ink);                                  // トウカの頭
-  px(0,cy,12,1,PAL.ink); px(1,cy+3,10,1,PAL.ink);          // ヒゲ
+  px(2,cy-3,8,8,PAL.plum);                                 // トウカの頭
+  px(0,cy,12,1,PAL.plum); px(1,cy+3,10,1,PAL.plum);        // ヒゲ
   px(3,cy-1,2,2,PAL.bg); px(7,cy-1,2,2,PAL.bg);            // 目
   const agi = k>0.7 ? 2 : k>0.35 ? 1 : 0;                  // 落ち着き / 気づいた / 騒ぐ
   const wig = agi ? Math.round(Math.sin(S.t*(agi>1?16:8))*agi) : 0;
@@ -1080,7 +1105,7 @@ function drawFall(){
     const y = fy + (it.at - S.fallDist);
     if(y<HUD_H-16||y>VH+16) continue;
     const x=it.x;
-    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.gold);
     px(x-3,y-3,6,3,PAL.ink);
   }
   // 一緒に落ちてくるヤツメウナギ（味付け。当たり判定は無い）
@@ -1131,11 +1156,11 @@ function drawTouka(){
 
   // トウカ。奥に小さく立っている。自分では動かず、指だけ差す
   const cx=VW/2, ty=horizon+16;
-  px(cx-7,ty-11,14,11,PAL.ink);                              // 髪と頭
-  px(cx-10,ty-4,20,1,PAL.ink); px(cx-8,ty-1,16,1,PAL.ink);   // ヒゲ
+  px(cx-7,ty-11,14,11,PAL.plum);                             // 髪と頭
+  px(cx-10,ty-4,20,1,PAL.plum); px(cx-8,ty-1,16,1,PAL.plum); // ヒゲ
   px(cx-4,ty-7,3,3,PAL.bg); px(cx+2,ty-7,3,3,PAL.bg);        // 目
-  px(cx-6,ty,12,7,PAL.ink);                                  // 肩
-  for(let i=0;i<4;i++) px(cx-6-i, ty+7+i*2, 12+i*2, 2, PAL.ink);  // 裾
+  px(cx-6,ty,12,7,PAL.plum);                                 // 肩
+  for(let i=0;i<4;i++) px(cx-6-i, ty+7+i*2, 12+i*2, 2, PAL.plum); // 裾
   lamprey(cx-14, ty+2, 1); lamprey(cx+18, ty+5, 1);
 
   // 指差し。差した列へ腕が伸び、その列の奥に着弾の帯が出る
@@ -1143,7 +1168,7 @@ function drawTouka(){
     const tx=lx(S.tkPoint,0.30), sx=cx+(tx>cx?7:-7);
     for(let i=0;i<=8;i++){
       const t=i/8;
-      px(lerp(sx,tx,t), lerp(ty+2, ty+9, t), 2, 2, PAL.ink);
+      px(lerp(sx,tx,t), lerp(ty+2, ty+9, t), 2, 2, PAL.plum);
     }
     if(Math.floor(S.t*12)%2===0){
       const w=Math.round((VW/C.lanes)*0.6);
@@ -1156,9 +1181,9 @@ function drawTouka(){
     if(net.age < net.tele || net.hit) continue;
     const t=(net.age-net.tele)/C.netFly;
     const x=lx(net.lane,t), y=lerp(horizon+26, py-24, t*t), r=Math.round(lerp(4,22,t*t));
-    ring(x,y,r,r*0.72,PAL.ink,2);
-    for(let i=-1;i<=1;i++) px(x+i*Math.round(r*0.5), y-Math.round(r*0.6), 1, Math.round(r*1.2), PAL.ink);
-    px(x-r, y, r*2, 1, PAL.ink);
+    ring(x,y,r,r*0.72,PAL.warn,2);
+    for(let i=-1;i<=1;i++) px(x+i*Math.round(r*0.5), y-Math.round(r*0.6), 1, Math.round(r*1.2), PAL.warn);
+    px(x-r, y, r*2, 1, PAL.warn);
   }
 
   // ミナリ。こちらへ走ってくる後ろ姿。画面の主役なので大きく
@@ -1224,7 +1249,7 @@ function drawClimb(){
     if(it.who) continue;
     const y=toY(it.h), x=lx+13;
     if(y<HUD_H-12||y>VH+12) continue;
-    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
+    for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.gold);
     px(x-3,y-3,6,3,PAL.ink);
   }
   // ミナリ
@@ -1279,21 +1304,22 @@ function drawSewerScene(){
     if(x1<=0||x0>=VW) continue;
     const w=Math.max(0,x1-x0), D=5;
     px(x0,gy,w,D,PAL.bg);                                   // くぼみ（床を抜く）
+    px(x0,gy+1,w,D-2,PAL.aqua);                              // 水面
     px(x0,gy,w,1,PAL.ink); px(x0,gy+D-1,w,1,PAL.ink);       // 上下の縁
     if(toScreen(q.x0)>=0) px(x0,gy,1,D,PAL.ink);
     if(toScreen(q.x1)<=VW) px(x1-1,gy,1,D,PAL.ink);
     for(let i=0;i<Math.floor(w/9);i++){                      // さざ波
       const o=Math.round(Math.sin(i*1.7+S.t*4)*1.5);
-      px(x0+4+i*9+o, gy+2, 4, 1, PAL.dim);
+      px(x0+4+i*9+o, gy+2, 4, 1, PAL.bg);
     }
-    if(q.wet) ring(x0+w/2, gy+2, w*0.45, 3, PAL.ink);        // 踏んだあとの波紋
+    if(q.wet) ring(x0+w/2, gy+2, w*0.45, 3, PAL.aqua);       // 踏んだあとの波紋
   }
   // チーズ
   for(const it of S.swItems){
     const sx=toScreen(it.x);
     if(sx<-14||sx>VW+14) continue;
     const cy=gy-(it.hi?C.cheeseHiY:C.cheeseY)-C.cheeseH;
-    for(let r=0;r<C.cheeseH;r++) px(sx-4+Math.round(r*0.35),cy+r,C.cheeseW-Math.round(r*0.7),1,PAL.dim);
+    for(let r=0;r<C.cheeseH;r++) px(sx-4+Math.round(r*0.35),cy+r,C.cheeseW-Math.round(r*0.7),1,PAL.gold);
     px(sx-2,cy+3,2,2,PAL.bg); px(sx+1,cy+6,2,2,PAL.bg);
   }
   // 脱出の梯子。掴みに行かないと掴めないので、通り道は塞がない
@@ -1352,7 +1378,7 @@ function drawHUD(){
   text("+"+Math.round(scoreRate()), 4, 12, PAL.dim);
   const st="ST"+S.stage;
   text(st, Math.round((VW-tw(st))/2), 12, PAL.dim);
-  for(let i=0;i<CONFIG.hearts;i++) heart(VW-4-(i+1)*9, 5, i<S.hearts?PAL.ink:PAL.bg);
+  for(let i=0;i<CONFIG.hearts;i++) heart(VW-4-(i+1)*9, 5, i<S.hearts?PAL.warn:PAL.off);
 }
 function drawTitle(){
   px(0,0,VW,VH,PAL.bg);
@@ -1360,7 +1386,7 @@ function drawTitle(){
   textC("STALKING",70,PAL.ink,2);
   textC("ALLEY",94,PAL.dim);
   drawMinari(VW/2,148);
-  for(let i=0;i<3;i++) heart(VW/2-13+i*9,160,PAL.ink);
+  for(let i=0;i<3;i++) heart(VW/2-13+i*9,160,PAL.warn);
   px(Math.round(VW*.12),176,Math.round(VW*.76),1,PAL.off);
   textC("TAP LEFT OR RIGHT",192,PAL.ink);
   textC("TAKE CANS AND RICE",212,PAL.dim);
@@ -1379,8 +1405,8 @@ function drawOver(){
   textC(spotted?"CAUGHT !":"GAME OVER", 52, PAL.warn);
   if(spotted){
     const cx=VW/2, ty=118;
-    px(cx-13,ty-16,26,20,PAL.ink);
-    px(cx-18,ty-2,36,2,PAL.ink); px(cx-15,ty+2,30,2,PAL.ink);
+    px(cx-13,ty-16,26,20,PAL.plum);
+    px(cx-18,ty-2,36,2,PAL.plum); px(cx-15,ty+2,30,2,PAL.plum);
     px(cx-8,ty-10,5,5,PAL.bg); px(cx+3,ty-10,5,5,PAL.bg);
     textC("TOUKA HAS YOU",150,PAL.dim);
   } else {
