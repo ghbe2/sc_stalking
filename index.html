@@ -61,7 +61,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813E";
+const BUILD = "0813F";
 
 /* ============================================================
    CONFIG
@@ -69,8 +69,8 @@ const BUILD = "0813E";
 const CONFIG = {
   lanes: 4,
   speed: 68,          // 一定。ミナリの走る速さは変わらない
-  ramp: 52,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
-  watchRamp: 42,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
+  ramp: 34,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
+  watchRamp: 22,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
 
   hearts: 3,
   invuln: 1.3,        // 被弾後の無敵（連続で溶けないように）
@@ -80,7 +80,7 @@ const CONFIG = {
   score: { can: 30, rice: 150 },
 
   // 歩いてくる連中だけが速くなる。落ちているアイテムは速くならない
-  enemySpeed: { far: 1.00, near: 2.35 },
+  enemySpeed: { far: 1.35, near: 2.75 },
 
   watch: {
     lifeFar: 3.0, lifeNear: 6.0,    // 監視が居座る秒数（粘るほど長い）
@@ -94,7 +94,7 @@ const CONFIG = {
   },
 
   spawn: {
-    crowdGapFar: 1.00, crowdGapNear: 0.58,   // 人混みの間隔（時間で詰まる）
+    crowdGapFar: 0.74, crowdGapNear: 0.44,   // 人混みの間隔（時間で詰まる）
     womanFar: 8.0, womanNear: 3.4,           // 秒
     watchFar: 6.5, watchNear: 3.0,           // 秒。序盤から常に1列は監視がある（＝常に賭けられる）
     itemDist: 210,                           // 距離ごと。歩かないので時間で速くならない
@@ -110,7 +110,8 @@ const CONFIG = {
     woman:    { cross: 46, w:11, h:18 },
     can:      { w: 7, h: 9 },
     rice:     { w: 9, h: 8 },
-    manhole:  { w:24, h:13 },
+    // 逃げ道なので大きく、飛び込める間合いも深くとる（外すと次まで長い）
+    manhole:  { w:34, h:22, depth:26 },
   },
 
   player: { y:0.78, laneSpeed:16 },   // 後ろから来るものが無いので、前を広く見せる
@@ -119,8 +120,8 @@ const CONFIG = {
   // 捕まってトウカへ行くとこの画面を通らない＝安全な道を選んだ者だけが回復する
   // 落下中はレーンを使わず、押している方向へ緩慢に流れる。1個も取れないこともある
   fall: {
-    duration: 5.0, scroll: 155, gap: 205, y: 0.32,
-    accel: 58, maxVX: 17, drag: 2.2, catchR: 9,
+    duration: 5.2, scroll: 150, gap: 175, y: 0.34,
+    accel: 420, maxVX: 110, drag: 3.5, catchR: 13,
   },
 
   // 下水の横スクロール。入力は1つだけ ——
@@ -128,14 +129,14 @@ const CONFIG = {
   // 「しゃがみ続けたら必ず跳ぶ」ので、いつ放すかがそのまま判断になる
   sewer: {
     speed: 58, gravity: 520,
-    minJump: 150, maxJump: 258, maxCharge: 0.55,
+    minJump: 150, maxJump: 220, maxCharge: 0.55,
     playerX: 0.26,          // 画面幅に対する立ち位置。前を広く見せる
     groundY: 0.74,          // プレイ領域に対する地面の高さ
-    standH: 15, crouchH: 8, bodyW: 10,
+    standH: 15, crouchH: 8, bodyW: 8,
 
     // 蝙蝠は2隊形だけ。ふさぐ高さの帯を変えて、伏せるか跳ぶかを決めさせる。
     // low は溜めなしの跳躍でも越えられる高さにする（溜め量の精度は要求しない）
-    batW: 11, batH: 13, batStack: 13, batDrift: -28,
+    batW: 9, batH: 13, batStack: 13, batDrift: -22,
     batBands: {
       high: [[14, 92]],
       low:  [[ 0, 14]],
@@ -152,11 +153,11 @@ const CONFIG = {
     // 梯子＝脱出。地面からは最大溜めでも届かない高さに吊ってある。
     // 手前に浮いた足場があり、そこに跳び乗って、さらに跳ばないと掴めない。
     // 足場は一方通行（下は素通りできる）ので、乗るか下を行くかを選べる
-    ladderDist: 560, ladderW: 15, ladderLo: 84,
-    platH: 40, platW: 78, platThick: 4,
+    ladderDist: 560, ladderW: 28, ladderLo: 64,
+    platH: 28, platW: 104, platThick: 4,
 
     // 足場に乗れば手に入る高いチーズ。地面からだと大きく溜める必要がある
-    cheeseHiY: 52,
+    cheeseHiY: 40,
 
     // 潜るほどトウカは耳を澄ます。気配の引きが遅くなり、いつかは追いつかれる
     noiseMax: 100, noiseDecayFar: 6.0, noiseDecayNear: 1.8,
@@ -465,7 +466,7 @@ const S = {
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   climbY:0, climbSwarm:0, climbItems:[], climbT:0,
-  tkT:0, tkLane:1, tkLaneF:1, tkNets:[], tkNext:0, tkPoint:-1,
+  tkT:0, tkLane:1, tkLaneF:1, tkNets:[], tkNext:0, tkPoints:[],
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
   swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
@@ -725,7 +726,7 @@ function updateClimb(dt){
    ------------------------------------------------------------ */
 function enterTouka(){
   const C=CONFIG.touka;
-  S.scene="touka"; S.tkT=0; S.tkNets=[]; S.tkPoint=-1;
+  S.scene="touka"; S.tkT=0; S.tkNets=[]; S.tkPoints=[];
   S.tkLane=S.tkLaneF=Math.floor(C.lanes/2);
   S.tkNext=0.9;
   S.flash=0.6; S.shake=4;
@@ -758,10 +759,11 @@ function updateTouka(dt){
     S.tkNext = lerp(C.throwFar, C.throwNear, k)*(0.85+rnd()*0.3);
   }
 
-  S.tkPoint = -1;
+  // 予告中の列は「すべて」拾う。1つしか持たないと、2本同時のとき片方が無予告で飛ぶ
+  S.tkPoints = [];
   for(const net of S.tkNets){
     net.age += dt;
-    if(net.age < net.tele) S.tkPoint = net.lane;      // 指差し中
+    if(net.age < net.tele) S.tkPoints.push(net.lane);   // 指差し中
     if(!net.hit && net.age >= net.tele + C.netFly){
       net.hit = true;
       if(net.lane === S.tkLane) return finish("touka");
@@ -937,7 +939,8 @@ function updateSewer(dt){
 }
 function hits(e){
   if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
-  return Math.abs(e.at-S.dist)<CONFIG.hit.depth && e.lane===S.lane;
+  const d = CONFIG.actors[e.kind]?.depth ?? CONFIG.hit.depth;
+  return Math.abs(e.at-S.dist)<d && e.lane===S.lane;
 }
 
 /** 監視。見られている時間はミナリ側に1本。
@@ -1199,12 +1202,19 @@ function drawFall(){
     for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.gold);
     px(x-3,y-3,6,3,PAL.ink);
   }
-  // 一緒に落ちてくるヤツメウナギ（味付け。当たり判定は無い）
-  for(let i=0;i<5;i++){
-    const y=((i*77 + S.fallDist*0.8) % (VH+60)) - 30;
-    lamprey(10+((i*53)%(VW-24)), y, 1);
+  // 落ち始めだけ、マンホールの縁からヤツメウナギが覗いて手を伸ばしてくる。
+  // 崖から落ちる者へ差し出される手。掴まれることはない、ただの見送り
+  const peek = clamp(1 - S.fallT/1.6, 0, 1);
+  if(peek>0){
+    const edge = HUD_H + Math.round(-14 + 16*peek);
+    px(0,HUD_H,VW,Math.max(0,edge-HUD_H),PAL.off);
+    px(0,edge,VW,2,PAL.ink);
+    for(let i=0;i<4;i++){
+      const x = 14 + i*Math.round((VW-28)/3) + Math.round(Math.sin(S.t*5+i)*2);
+      lamprey(x, edge+4+Math.round(Math.sin(S.t*6+i*1.7)*2), 1.4);
+    }
   }
-  drawMinari(S.fallX, fy);
+  drawMinariFall(S.fallX, fy);
 
   const left=Math.max(0,CONFIG.fall.duration-S.fallT);
   textC("FALLING",HUD_H+8,PAL.dim);
@@ -1213,6 +1223,21 @@ function drawFall(){
   for(const t of S.toasts){ textC(t.txt.slice(0,10),ty,PAL.ink); ty+=9; }
   textC("SEWER NOT BUILT",VH-24,PAL.off);
   textC("BACK TO ALLEY",VH-14,PAL.off);
+}
+
+/** 落下のミナリ。ここだけ画面に他の要素が少ないので、大きく描いて顔を見せる。
+    手足を広げて、流れている向きへ少し傾ける */
+function drawMinariFall(cx,cy){
+  const tilt = Math.round(clamp(S.fallVX/CONFIG.fall.maxVX,-1,1)*3);
+  const wag  = Math.floor(S.t*7)%2===0 ? 1 : -1;
+  const x=Math.round(cx), y=Math.round(cy);
+  px(x-7,y-10,14,20,PAL.ink);                          // 胴（だぼだぼのシャツ）
+  px(x-11+tilt,y-12,5,8,PAL.ink); px(x+6+tilt,y-12,5,8,PAL.ink);   // 耳
+  px(x-6+tilt,y-6,4,3,PAL.bg);   px(x+2+tilt,y-6,4,3,PAL.bg);      // 目
+  px(x-2+tilt,y-1,4,2,PAL.bg);                                     // 口
+  px(x-14-tilt,y+1,7,3,PAL.ink); px(x+7-tilt,y+1,7,3,PAL.ink);     // 広げた腕
+  px(x-6,y+10,4,7,PAL.ink);      px(x+2,y+10,4,7,PAL.ink);         // 脚
+  for(let i=0;i<5;i++) px(x+7+i, y+8+i*wag, 2, 2, PAL.plum);       // 尻尾
 }
 
 /** 下水。横スクロールなので、路地・落下とは軸そのものが違う */
@@ -1254,16 +1279,19 @@ function drawTouka(){
   for(let i=0;i<4;i++) px(cx-6-i, ty+7+i*2, 12+i*2, 2, PAL.plum); // 裾
   lamprey(cx-14, ty+2, 1); lamprey(cx+18, ty+5, 1);
 
-  // 指差し。差した列へ腕が伸び、その列の奥に着弾の帯が出る
-  if(S.tkPoint>=0){
-    const tx=lx(S.tkPoint,0.30), sx=cx+(tx>cx?7:-7);
+  // 指差し。予告中の列すべてに腕を伸ばし、その列に着弾の帯を出す。
+  // 2列同時のときも必ず両方に出す（片方が無予告になると理不尽になる）
+  for(const lane of S.tkPoints){
+    const tx=lx(lane,0.30), sx=cx+(tx>cx?7:-7);
     for(let i=0;i<=8;i++){
       const t=i/8;
       px(lerp(sx,tx,t), lerp(ty+2, ty+9, t), 2, 2, PAL.plum);
     }
     if(Math.floor(S.t*12)%2===0){
-      const w=Math.round((VW/C.lanes)*0.6);
-      px(lx(S.tkPoint,0.42)-w/2, horizon+30, w, 2, PAL.warn);
+      const w=Math.round((VW/C.lanes)*0.66);
+      px(lx(lane,0.42)-w/2, horizon+30, w, 2, PAL.warn);
+      // 手前まで届く帯にして、走っている足元からでも気づけるようにする
+      px(lx(lane,1)-w/2, py-6, w, 2, PAL.warn);
     }
   }
 
