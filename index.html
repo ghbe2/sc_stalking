@@ -48,7 +48,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0812M";
+const BUILD = "0813A";
 
 /* ============================================================
    CONFIG
@@ -153,12 +153,11 @@ const CONFIG = {
   },
 
   // 梯子を昇る場面。連打で登る。ここが下水から地上へ戻るときの回復の機会。
-  // 先を行く別の鼠が同じおにぎりを狙っていて、先に着いたほうが food を取る。
-  // 追いかける相手が画面に映っているので、急ぐ理由が数字ではなく絵で分かる
+  // 下からトウカの部下（ヤツメウナギ）の群れが迫る。追いつかれても傷は負わないが、
+  // 群れが通り過ぎた先のおにぎりは食われてなくなる ＝ 遅いと回復を落とす
   climb: {
     total: 800, auto: 55, perTap: 22,       // 連打なしでも約15秒で登りきる
-    rivalSpeed: 120, rivalStart: 0.08,
-    rivalPause: 1.2,                        // 餌を食べている間は止まる＝こちらの付け入る隙
+    swarmStart: -110, swarmSpeed: 110, swarmAccel: 14,
     items: [0.40, 0.75],
     y: 0.62,                                // ミナリの画面上の位置
   },
@@ -338,7 +337,7 @@ const S = {
   scene:"title",            // title | play | falling | over
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
-  climbY:0, climbRival:0, climbItems:[], climbT:0, climbEat:0,
+  climbY:0, climbSwarm:0, climbItems:[], climbT:0,
   // 下水: y は地面からの高さ。charge は溜め秒数
   swDist:0, swY:0, swVY:0, swGround:true, swCharge:0, swHeld:false,
   swBats:[], swPuddles:[], swItems:[], swLadders:[], swPlats:[],
@@ -567,27 +566,26 @@ function updateFall(dt){
    ------------------------------------------------------------ */
 function enterClimb(){
   const C=CONFIG.climb;
-  S.scene="climb"; S.climbY=0; S.climbT=0; S.healed=0; S.climbEat=0;
-  S.climbRival = C.rivalStart*C.total;
-  S.climbItems = C.items.map(h=>({h:h*C.total, who:0}));   // 0=まだ 1=ミナリ 2=相手
+  S.scene="climb"; S.climbY=0; S.climbT=0; S.healed=0;
+  S.climbSwarm = C.swarmStart;
+  S.climbItems = C.items.map(h=>({h:h*C.total, who:0}));   // 0=まだ 1=ミナリ 2=群れに食われた
 }
 function updateClimb(dt){
   const C=CONFIG.climb;
   S.climbT += dt;
   if(edge.tap) S.climbY += C.perTap;
   S.climbY += C.auto*dt;
-  if(S.climbEat>0) S.climbEat -= dt;          // 相手が食べている間は止まっている
-  else S.climbRival += C.rivalSpeed*dt;
+  // 群れは加速しながら這い上がってくる。追いつかれても傷は負わない
+  S.climbSwarm += (C.swarmSpeed + C.swarmAccel*S.climbT)*dt;
 
   for(const it of S.climbItems){
     if(it.who) continue;
-    const meGot = S.climbY>=it.h, rivalGot = S.climbRival>=it.h;
-    if(meGot && (!rivalGot || S.climbY>=S.climbRival)){
+    if(S.climbY>=it.h){
       it.who=1;
       if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); }
       else { S.score += CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
-    } else if(rivalGot){
-      it.who=2; S.climbEat=C.rivalPause; toast("取られた");
+    } else if(S.climbSwarm>=S.climbY){        // 追い抜かれたら、先のおにぎりは食われる
+      it.who=2; toast("食われた");
     }
   }
   if(S.climbY>=C.total){ S.stage++; enterAlley(); }
@@ -930,13 +928,32 @@ function drawActor(e){
   }
 }
 
+/** ヤツメウナギ。トウカの部下。細長い体と、丸い吸盤の口 */
+function lamprey(x,y,wr){
+  const w=Math.round(3+2*(wr||1));
+  px(x,y,3,3,PAL.ink);                 // 頭（吸盤）
+  px(x+1,y+1,1,1,PAL.bg);
+  for(let i=0;i<4;i++) px(x-2-i*2, y+Math.round(Math.sin(i*1.4+S.t*9)*1.2), 2, 2, PAL.ink);
+  if(w>5) px(x-9,y,2,1,PAL.dim);
+}
+
 /** トウカに掴まれるまでのゲージ。路地と下水で共通の見た目にする */
 function drawStalkBar(top, k, label){
   k = clamp(k,0,1);
-  const gw = VW-8;
-  px(4,top-1,gw,1,PAL.dim);
-  px(4,top,gw,5,PAL.bg);
-  px(4,top,Math.round(gw*k),5, k>0.7?PAL.warn:PAL.ink);
+  // 左端にトウカと、仕えるヤツメウナギ。ゲージが溜まるほどヤツメウナギが騒ぐ
+  const cy=top+2;
+  px(2,cy-3,8,8,PAL.ink);                                  // トウカの頭
+  px(0,cy,12,1,PAL.ink); px(1,cy+3,10,1,PAL.ink);          // ヒゲ
+  px(3,cy-1,2,2,PAL.bg); px(7,cy-1,2,2,PAL.bg);            // 目
+  const agi = k>0.7 ? 2 : k>0.35 ? 1 : 0;                  // 落ち着き / 気づいた / 騒ぐ
+  const wig = agi ? Math.round(Math.sin(S.t*(agi>1?16:8))*agi) : 0;
+  lamprey(16, cy+wig, agi?1.6:1);
+  if(agi>1 && Math.floor(S.t*10)%2===0) text("!",22,cy-7,PAL.warn);
+
+  const gx=26, gw=VW-gx-4;
+  px(gx,top-1,gw,1,PAL.dim);
+  px(gx,top,gw,5,PAL.bg);
+  px(gx,top,Math.round(gw*k),5, k>0.7?PAL.warn:PAL.ink);
   if(k>0.7 && Math.floor(S.t*8)%2===0) textC(label,top+8,PAL.warn);
 }
 
@@ -993,6 +1010,11 @@ function drawFall(){
     for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
     px(x-3,y-3,6,3,PAL.ink);
   }
+  // 一緒に落ちてくるヤツメウナギ（味付け。当たり判定は無い）
+  for(let i=0;i<5;i++){
+    const y=((i*77 + S.fallDist*0.8) % (VH+60)) - 30;
+    lamprey(10+((i*53)%(VW-24)), y, 1);
+  }
   drawMinari(S.fallX, fy);
 
   const left=Math.max(0,CONFIG.fall.duration-S.fallT);
@@ -1035,6 +1057,17 @@ function drawClimb(){
   for(let h=Math.floor(S.climbY/40)*40-80; h<S.climbY+VH; h+=40){
     const y=toY(h); if(y>HUD_H-4 && y<VH+4) px(rx-6,y,7,2,PAL.dim);
   }
+  // 下から這い上がってくるヤツメウナギの群れ
+  const sy=toY(S.climbSwarm);
+  if(sy>HUD_H-40){
+    const top=Math.max(HUD_H,sy);
+    px(0,top,VW,VH-top,PAL.off);
+    for(let i=0;i<9;i++){
+      const x=6+((i*23+Math.round(S.climbT*11))%(VW-14));
+      lamprey(x, sy+6+((i*13)%26), 1+Math.sin(S.t*7+i)*0.6);
+    }
+    for(let x=0;x<VW;x+=5) px(x,sy+Math.round(Math.sin(x*0.4+S.t*6)*2),4,2,PAL.dim);
+  }
   // 出口の明かり
   const topY=toY(C.total);
   if(topY<VH+20){
@@ -1048,14 +1081,6 @@ function drawClimb(){
     if(y<HUD_H-12||y>VH+12) continue;
     for(let r=0;r<8;r++) px(x-Math.round(r*0.6),y-8+r,Math.max(1,Math.round(r*1.2)),1,PAL.dim);
     px(x-3,y-3,6,3,PAL.ink);
-  }
-  // 先を行く鼠
-  const ry=toY(S.climbRival);
-  if(ry>HUD_H-16 && ry<VH+16){
-    const wig=Math.floor(S.t*10)%2?1:-1;
-    px(rx-4,ry-12,9,12,PAL.dim);
-    px(rx-6,ry-16,4,5,PAL.dim); px(rx+2,ry-16,4,5,PAL.dim);
-    px(rx-1,ry+wig,3,5,PAL.dim);
   }
   // ミナリ
   const wig=Math.floor(S.t*12)%2?1:-1;
