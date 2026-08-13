@@ -52,15 +52,16 @@ SPRITES = [
     ("minariFallB",  "characters/minari_fall_B.png",       32, 34, 13),
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 20, 26, 11),
     ("minariClimbB", "characters/minari_ladder_climb_B.png", 20, 26, 11),
-    # ── トウカ（ミナリの真後ろに迫る。小さくしすぎると存在感が消える） ──
-    ("toukaA",       "characters/touka_approach_A.png",       40, 56, 13),
-    ("toukaB",       "characters/touka_approach_B.png",       40, 56, 13),
+    # ── トウカ（奥に立つ。遠近で見せるので大小2枚を持つ） ────
+    ("toukaA",       "characters/touka_approach_A.png",       26, 36, 12),
+    ("toukaB",       "characters/touka_approach_B.png",       26, 36, 12),
     # ── ヤツメウナギ（網を投げる部下。ひとりだけ） ──────────
-    ("lampReady",    "characters/amaru_net_ready.png",     24, 32, 10),
-    ("lampThrow",    "characters/amaru_net_throw.png",     30, 32, 10),
-    # 網は線が細い。縮める前に太らせないと消えるが、太らせすぎると塊になる
-    ("netFar",       "characters/amaru_cast_net.png",      20, 14, 5, 2),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 40, 38, 5, 1),
+    ("lampReady",    "characters/amaru_net_ready.png",     16, 22, 9),
+    ("lampThrow",    "characters/amaru_net_throw.png",     20, 22, 9),
+    # 網は奥から手前へ来る。大きさの段を3つ持たせて、近づくのを見せる
+    ("netFar",       "characters/amaru_cast_net.png",      12,  9, 4, 3),
+    ("netMid",       "characters/amaru_cast_net_wide.png", 24, 22, 4, 2),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 46, 44, 5, 1),
     # ── 路地の通行人 ────────────────────────────────────────
     ("man",          "characters/npc_boar_man_walk_front.png",  15, 22, 9),
     ("woman",        "characters/npc_fox_woman_cross.png",      16, 20, 9),
