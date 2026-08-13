@@ -38,11 +38,11 @@ SPRITES = [
     # ── ミナリ ──────────────────────────────────────────────
     ("minariBackA",  "characters/minari_back_run_A.png",   22, 26, 11),
     ("minariBackB",  "characters/minari_back_run_B.png",   22, 26, 11),
-    # トウカ画面はミナリが主役。顔が読める大きさまで上げる
-    ("minariFrontA", "characters/minari_front_run_A.png",  34, 38, 14),
-    ("minariFrontB", "characters/minari_front_run_B.png",  34, 38, 14),
-    ("minariDodgeL", "characters/minari_dodge_left.png",   38, 34, 14),
-    ("minariDodgeR", "characters/minari_dodge_right.png",  38, 34, 14),
+    # トウカ画面はミナリが主役。画面の1/3を占める大きさで、顔を見せる
+    ("minariFrontA", "characters/minari_front_run_A.png",  52, 58, 15),
+    ("minariFrontB", "characters/minari_front_run_B.png",  52, 58, 15),
+    ("minariDodgeL", "characters/minari_dodge_left.png",   56, 52, 15),
+    ("minariDodgeR", "characters/minari_dodge_right.png",  56, 52, 15),
     # 下水は横向き。立ち30px・伏せ16pxの当たり判定に合わせる
     ("minariSideA",  "characters/minari_side_run_A.png",   26, 30, 13),
     ("minariSideB",  "characters/minari_side_run_B.png",   26, 30, 13),
@@ -52,14 +52,15 @@ SPRITES = [
     ("minariFallB",  "characters/minari_fall_B.png",       32, 34, 13),
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 20, 26, 11),
     ("minariClimbB", "characters/minari_ladder_climb_B.png", 20, 26, 11),
-    # ── トウカ（奥に立って指す） ────────────────────────────
-    ("toukaA",       "characters/touka_approach_A.png",       22, 32, 11),
-    ("toukaB",       "characters/touka_approach_B.png",       22, 32, 11),
+    # ── トウカ（ミナリの真後ろに迫る。小さくしすぎると存在感が消える） ──
+    ("toukaA",       "characters/touka_approach_A.png",       40, 56, 13),
+    ("toukaB",       "characters/touka_approach_B.png",       40, 56, 13),
     # ── ヤツメウナギ（網を投げる部下。ひとりだけ） ──────────
-    ("lampReady",    "characters/amaru_net_ready.png",     16, 22, 9),
-    ("lampThrow",    "characters/amaru_net_throw.png",     20, 22, 9),
-    ("netFar",       "characters/amaru_cast_net.png",      14, 10, 4, 2),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 28, 26, 4, 1),
+    ("lampReady",    "characters/amaru_net_ready.png",     24, 32, 10),
+    ("lampThrow",    "characters/amaru_net_throw.png",     30, 32, 10),
+    # 網は線が細い。縮める前に太らせないと消えるが、太らせすぎると塊になる
+    ("netFar",       "characters/amaru_cast_net.png",      20, 14, 5, 2),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 40, 38, 5, 1),
     # ── 路地の通行人 ────────────────────────────────────────
     ("man",          "characters/npc_boar_man_walk_front.png",  15, 22, 9),
     ("woman",        "characters/npc_fox_woman_cross.png",      16, 20, 9),
