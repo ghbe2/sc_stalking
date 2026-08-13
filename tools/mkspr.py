@@ -31,43 +31,45 @@ MIN_GAP  = 46
 # 焼き込まれた背景（ピンクのベタ）を抜くときの許容差
 BG_TOL = 34
 
-# name: (ファイル, 幅, 高さ, 色数)
+# 実機（縦持ちスマホ）は仮想 150x320 になる。レーン幅は約37px。
+# 寸法はこの幅を基準に決める。大きい画面では余白が増えるだけで崩れない。
+# name: (ファイル, 幅, 高さ, 色数, 太らせ)
 SPRITES = [
     # ── ミナリ ──────────────────────────────────────────────
-    ("minariBackA",  "characters/minari_back_run_A.png",   30, 34, 12),
-    ("minariBackB",  "characters/minari_back_run_B.png",   30, 34, 12),
+    ("minariBackA",  "characters/minari_back_run_A.png",   22, 26, 11),
+    ("minariBackB",  "characters/minari_back_run_B.png",   22, 26, 11),
     # トウカ画面はミナリが主役。顔が読める大きさまで上げる
-    ("minariFrontA", "characters/minari_front_run_A.png",  44, 50, 15),
-    ("minariFrontB", "characters/minari_front_run_B.png",  44, 50, 15),
-    ("minariDodgeL", "characters/minari_dodge_left.png",   50, 46, 15),
-    ("minariDodgeR", "characters/minari_dodge_right.png",  50, 46, 15),
+    ("minariFrontA", "characters/minari_front_run_A.png",  34, 38, 14),
+    ("minariFrontB", "characters/minari_front_run_B.png",  34, 38, 14),
+    ("minariDodgeL", "characters/minari_dodge_left.png",   38, 34, 14),
+    ("minariDodgeR", "characters/minari_dodge_right.png",  38, 34, 14),
     # 下水は横向き。立ち30px・伏せ16pxの当たり判定に合わせる
     ("minariSideA",  "characters/minari_side_run_A.png",   26, 30, 13),
     ("minariSideB",  "characters/minari_side_run_B.png",   26, 30, 13),
     ("minariCrouch", "characters/minari_crouch.png",       30, 16, 11),
     # 落下も見せ場。他に描くものが少ないので大きく
-    ("minariFallA",  "characters/minari_fall_A.png",       40, 44, 14),
-    ("minariFallB",  "characters/minari_fall_B.png",       40, 44, 14),
-    ("minariClimbA", "characters/minari_ladder_climb_A.png", 26, 34, 12),
-    ("minariClimbB", "characters/minari_ladder_climb_B.png", 26, 34, 12),
-    # ── トウカ（奥に立って指す。歩きの2枚 × 2種） ───────────
-    ("toukaA",       "characters/touka_approach_A.png",       26, 38, 12),
-    ("toukaB",       "characters/touka_approach_B.png",       26, 38, 12),
-    # ── ヤツメウナギ（網を投げる部下） ──────────────────────
-    ("lampReady",    "characters/amaru_net_ready.png",     22, 28, 10),
-    ("lampThrow",    "characters/amaru_net_throw.png",     26, 28, 10),
-    ("netFar",       "characters/amaru_cast_net.png",      20, 14,  4, 2),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 34, 32,  4, 1),
+    ("minariFallA",  "characters/minari_fall_A.png",       32, 34, 13),
+    ("minariFallB",  "characters/minari_fall_B.png",       32, 34, 13),
+    ("minariClimbA", "characters/minari_ladder_climb_A.png", 20, 26, 11),
+    ("minariClimbB", "characters/minari_ladder_climb_B.png", 20, 26, 11),
+    # ── トウカ（奥に立って指す） ────────────────────────────
+    ("toukaA",       "characters/touka_approach_A.png",       22, 32, 11),
+    ("toukaB",       "characters/touka_approach_B.png",       22, 32, 11),
+    # ── ヤツメウナギ（網を投げる部下。ひとりだけ） ──────────
+    ("lampReady",    "characters/amaru_net_ready.png",     16, 22, 9),
+    ("lampThrow",    "characters/amaru_net_throw.png",     20, 22, 9),
+    ("netFar",       "characters/amaru_cast_net.png",      14, 10, 4, 2),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 28, 26, 4, 1),
     # ── 路地の通行人 ────────────────────────────────────────
-    ("man",          "characters/npc_boar_man_walk_front.png",  18, 26, 10),
-    ("woman",        "characters/npc_fox_woman_cross.png",      20, 24, 10),
-    ("kid",          "characters/npc_tanuki_kid_run_front.png", 16, 22, 10),
+    ("man",          "characters/npc_boar_man_walk_front.png",  15, 22, 9),
+    ("woman",        "characters/npc_fox_woman_cross.png",      16, 20, 9),
+    ("kid",          "characters/npc_tanuki_kid_run_front.png", 13, 17, 9),
     # ── 拾うもの ────────────────────────────────────────────
-    ("cheese",       "items/cheese.png",    12, 11, 6),
-    ("onigiri",      "items/onigiri.png",   11, 10, 5),
-    ("apple",        "items/apple.png",     10, 10, 5),
-    ("banana",       "items/banana.png",    12,  9, 5),
-    ("can",          "items/empty_can.png", 12,  8, 6),
+    ("cheese",       "items/cheese.png",    11, 10, 5),
+    ("onigiri",      "items/onigiri.png",   10,  9, 5),
+    ("apple",        "items/apple.png",      9,  9, 4),
+    ("banana",       "items/banana.png",    11,  8, 4),
+    ("can",          "items/empty_can.png", 11,  7, 5),
 ]
 
 CHARS = "123456789abcdef"
@@ -172,7 +174,12 @@ def build(name, path, W, H, ncol, bold=0):
     # 縦横比を保ったまま枠に収め、下端を基準に置く（足元を揃えるため）
     sc = min(W/im.width, H/im.height)
     tw, th = max(1, round(im.width*sc)), max(1, round(im.height*sc))
-    im = im.resize((tw, th), Image.LANCZOS)
+    # 一気に縮めない。LANCZOS は縮小率が大きいと輪郭に「鳴き」が出て、
+    # 単独の浮いた点になる（これがジャギの見え方になる）。
+    # 4倍手前まで LANCZOS で落として、最後は面積平均で均す
+    while im.width > tw*4 and im.height > th*4:
+        im = im.resize((max(tw, im.width//2), max(th, im.height//2)), Image.LANCZOS)
+    im = im.resize((tw, th), Image.BOX)
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     canvas.paste(im, ((W-tw)//2, H-th), im)
     im = canvas
@@ -194,6 +201,24 @@ def build(name, path, W, H, ncol, bold=0):
                 opaque.putpixel((x, y), (r, g, b))
                 mask.putpixel((x, y), 255)
     q = opaque.quantize(colors=ncol, method=Image.MEDIANCUT, dither=Image.NONE).convert("RGB")
+
+    # 浮いた1ドットを消す。縮小の過程でどうしても、周りと繋がっていない点が
+    # 残る。手で置いたドット絵にはこれが無いので、あるだけで粗く見える
+    m = mask.load()
+    for _ in range(2):
+        drop = []
+        for y in range(H):
+            for x in range(W):
+                if not m[x, y]:
+                    continue
+                n = sum(1 for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1))
+                        if 0 <= x+dx < W and 0 <= y+dy < H and m[x+dx, y+dy])
+                if n <= 1:
+                    drop.append((x, y))
+        if not drop:
+            break
+        for x, y in drop:
+            m[x, y] = 0
 
     pal, order = {}, []
     rows = []
