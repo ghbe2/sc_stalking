@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813O";
+const BUILD = "0813P";
 
 /* ============================================================
    CONFIG
@@ -1395,6 +1395,56 @@ const SFX = (()=>{
 try{ if(localStorage.getItem("sugake_se")==="0") SFX.on=false; }catch(e){}
 const se = n => SFX.play(n);
 
+/* ============================================================
+   BGM — 3曲。場所が続いている画面は曲も続ける。
+     路地  … 路地 と 落下（マンホールに飛び込んだだけで、まだ路地の続き）
+     下水  … 下水 と 昇り（地上へ出るまでは下水の中）
+     トウカ … トウカ
+
+   曲は画面ではなく **曲そのもの** で持つ。画面が変わっても同じ曲なら
+   鳴らし直さない——落下のたびに路地の曲が頭から始まると、繋がりが切れる。
+   ============================================================ */
+const BGM = (()=>{
+  const SRC = {
+    alley: "sounds/路地フェーズ.mp3",
+    sewer: "sounds/下水フェーズ.mp3",
+    touka: "sounds/トウカフェーズ.mp3",
+  };
+  const FOR_SCENE = { play:"alley", falling:"alley", sewer:"sewer", climb:"sewer", touka:"touka" };
+  const VOL = 0.42, FADE = 1.6;          // 音量と、切り替えにかける秒数
+  const el = {};
+  let woke = false;
+  function get(name){
+    if(el[name]) return el[name];
+    const a = new Audio(encodeURI(SRC[name]));
+    a.loop = true; a.preload = "none"; a.volume = 0;
+    el[name] = a;
+    return a;
+  }
+  return {
+    /** 画面に合わせて鳴らす。実時間で呼ぶこと（update から呼ぶと早送りされる） */
+    follow(scene, dt){
+      if(!woke) return;
+      const want = SFX.on ? FOR_SCENE[scene] : null;
+      if(want) get(want);
+      for(const name of Object.keys(SRC)){
+        const a = el[name];
+        if(!a) continue;
+        const target = (name===want) ? VOL : 0;
+        const step = VOL/FADE*dt;
+        a.volume = clamp(a.volume + clamp(target-a.volume, -step, step), 0, 1);
+        if(target>0 && a.paused) a.play().catch(()=>{});
+        if(a.volume<=0.001 && !a.paused) a.pause();
+      }
+    },
+    /** 最初の入力で起こす。ブラウザは触られるまで鳴らせない */
+    wake(){ woke = true; },
+    /** いま何がどれだけ鳴っているか。DEBUG 表示と動作確認に使う */
+    state(){ return Object.keys(el).map(n => n+" "+el[n].volume.toFixed(2)+(el[n].paused?"-":"+")).join(" "); },
+    stop(){ for(const n in el){ el[n].pause(); el[n].volume=0; } },
+  };
+})();
+
 /* ------------------------------------------------------------
    この画面の終わり方。別画面と接続するときはここだけ差し替える。
      "manhole" → 次のステージへ（低リスク低リターン）
@@ -1497,7 +1547,7 @@ function spawnWatch(){
 const touch={down:false,x:0,y:0,dir:0,holdT:0,reps:0,showT:0};
 const edge={}, keys={left:false,right:false,hold:false};
 function onDown(e){
-  SFX.wake();                       // 触られるまで音は出せない決まりなので、ここで起こす
+  SFX.wake(); BGM.wake();           // 触られるまで音は出せない決まりなので、ここで起こす
   const p=e.touches?e.touches[0]:e;
   touch.down=true; touch.holdT=0; touch.reps=0; touch.showT=.4;
   touch.x=p.clientX; touch.y=p.clientY;
@@ -2603,6 +2653,7 @@ function frame(now){
   const dt=Math.min((now-last)/1000,0.05); last=now;
   if(innerWidth!==lastW||innerHeight!==lastH) resize();
   update(dt); render(); updateDebug();
+  BGM.follow(S.scene, dt);          // 実時間で呼ぶ。update の中だと計測用の早送りに巻き込まれる
   for(const k in edge) delete edge[k];
   requestAnimationFrame(frame);
 }
@@ -2613,10 +2664,11 @@ document.getElementById("devToggle").onclick=()=>document.getElementById("dev").
 { // 音の入切。画面のタップは操作に使うので、切り替えは画面の外に置く
   const b=document.getElementById("seToggle");
   const paint=()=>b.classList.toggle("off", !SFX.on);
-  b.onclick=()=>{ SFX.toggle(); paint(); };
+  b.onclick=()=>{ SFX.toggle(); if(!SFX.on) BGM.stop(); else BGM.wake(); paint(); };
   paint();
 }
 addEventListener("keydown",e=>{ if(e.code==="KeyM"){ SFX.toggle();
+  if(!SFX.on) BGM.stop(); else BGM.wake();
   document.getElementById("seToggle").classList.toggle("off", !SFX.on); }});
 document.getElementById("tDbg").onclick=()=>{CONFIG.debug=!CONFIG.debug;};
 // デバッグ: 開始ステージを選ぶ。難易度（通算時間）もそのぶん進めた状態で始まる
@@ -2648,6 +2700,7 @@ function updateDebug(){
   dbg.textContent=
 `${S.scene} t${S.t.toFixed(1)} seed ${S.seed}
 HEART ${S.hearts}${S.scene==="sewer"?`  SW heat ${swHeat().toFixed(2)} noise ${S.swNoise.toFixed(0)}/${CONFIG.sewer.noiseMax} spd ${swSpeed().toFixed(0)} dist ${S.swDist.toFixed(0)}`:""}
+BGM ${BGM.state()||"none"}
 DENS ${dens().toFixed(2)} gap x${lerp(CONFIG.spawn.crowdGapFar,CONFIG.spawn.crowdGapNear,dens()).toFixed(2)}
 RATE +${scoreRate().toFixed(0)}/s  enemy x${enemySpeed().toFixed(2)}
 WATCH ${S.watches.length}/${CONFIG.lanes} 列 [${S.watches.map(w=>w.lane).sort().join(",")||"-"}] 叫び=${perScream()}列 densW ${densW().toFixed(2)}
