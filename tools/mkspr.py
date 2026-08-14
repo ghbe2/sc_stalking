@@ -38,11 +38,13 @@ SPRITES = [
     # ── ミナリ ──────────────────────────────────────────────
     ("minariBackA",  "characters/minari_back_run_A.png",   22, 26, 11),
     ("minariBackB",  "characters/minari_back_run_B.png",   22, 26, 11),
-    # トウカ画面はミナリが主役。画面の1/3を占める大きさで、顔を見せる
-    ("minariFrontA", "characters/minari_front_run_A.png",  52, 58, 15),
-    ("minariFrontB", "characters/minari_front_run_B.png",  52, 58, 15),
-    ("minariDodgeL", "characters/minari_dodge_left.png",   56, 52, 15),
-    ("minariDodgeR", "characters/minari_dodge_right.png",  56, 52, 15),
+    # トウカ画面はミナリが主役。画面の4割強を占める。
+    # この背丈がトウカ画面の遠近の基準になっていて、地平線も他のキャラの
+    # 立ち位置もここから逆算される。変えるときは drawTouka の前提も変わる
+    ("minariFrontA", "characters/minari_front_run_A.png",  126, 140, 15),
+    ("minariFrontB", "characters/minari_front_run_B.png",  126, 140, 15),
+    ("minariDodgeL", "characters/minari_dodge_left.png",   140, 130, 15),
+    ("minariDodgeR", "characters/minari_dodge_right.png",  140, 130, 15),
     # 下水は横向き。立ち30px・伏せ16pxの当たり判定に合わせる
     ("minariSideA",  "characters/minari_side_run_A.png",   26, 30, 13),
     ("minariSideB",  "characters/minari_side_run_B.png",   26, 30, 13),
@@ -52,16 +54,18 @@ SPRITES = [
     ("minariFallB",  "characters/minari_fall_B.png",       32, 34, 13),
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 20, 26, 11),
     ("minariClimbB", "characters/minari_ladder_climb_B.png", 20, 26, 11),
-    # ── トウカ（奥に立つ。遠近で見せるので大小2枚を持つ） ────
-    ("toukaA",       "characters/touka_approach_A.png",       26, 36, 12),
-    ("toukaB",       "characters/touka_approach_B.png",       26, 36, 12),
-    # ── ヤツメウナギ（網を投げる部下。ひとりだけ） ──────────
-    ("lampReady",    "characters/amaru_net_ready.png",     16, 22, 9),
-    ("lampThrow",    "characters/amaru_net_throw.png",     20, 22, 9),
-    # 網は奥から手前へ来る。大きさの段を3つ持たせて、近づくのを見せる
-    ("netFar",       "characters/amaru_cast_net.png",      12,  9, 4, 3),
-    ("netMid",       "characters/amaru_cast_net_wide.png", 24, 22, 4, 2),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 46, 44, 5, 1),
+    # ── トウカと部下 ────────────────────────────────────────
+    # 大きさは奥行きから逆算して決めた（背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05）。
+    # 同じ奥行きに立つので、並べても不自然にならない
+    ("toukaA",       "characters/touka_approach_A.png",       54, 74, 13),
+    ("toukaB",       "characters/touka_approach_B.png",       54, 74, 13),
+    ("lampReady",    "characters/amaru_net_ready.png",     44, 58, 11),
+    ("lampThrow",    "characters/amaru_net_throw.png",     54, 58, 11),
+    # 網は奥から手前へ来る。大きさの段を4つ持たせて、近づくのを見せる
+    ("netFar",       "characters/amaru_cast_net.png",      14, 11, 4, 3),
+    ("netMid",       "characters/amaru_cast_net_wide.png", 30, 28, 4, 2),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 56, 52, 5, 1),
+    ("netHit",       "characters/amaru_cast_net_wide.png", 96, 90, 6, 1),
     # ── 路地の通行人 ────────────────────────────────────────
     ("man",          "characters/npc_boar_man_walk_front.png",  15, 22, 9),
     ("woman",        "characters/npc_fox_woman_cross.png",      16, 20, 9),
@@ -293,4 +297,5 @@ def sheet(out, scale=5):
     print("確認用シート:", p)
 
 
-main()
+if __name__ == "__main__":
+    main()
