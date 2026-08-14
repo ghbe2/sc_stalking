@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813N";
+const BUILD = "0813O";
 
 /* ============================================================
    CONFIG
@@ -73,6 +73,12 @@ const CONFIG = {
   speed: 68,          // 一定。ミナリの走る速さは変わらない
   ramp: 34,           // 秒。人混み・敵の速さ・点の入りが最大になるまで
   watchRamp: 22,      // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
+
+  // 同じ画面に戻ってくるたびに、坂がこの倍率できつくなる。
+  // 1画面ごとに難易度を登り直す作りなので、これが無いと永遠に終わらない
+  stageGain: 1.10,
+  // 譜面の上限を超えたぶんが、速さと人混みに直接乗る割合
+  overdrive: 0.45,
 
   hearts: 3,
   invuln: 1.3,        // 被弾後の無敵（連続で溶けないように）
@@ -1283,14 +1289,25 @@ const S = {
   end:"", best:0, seed:"",
 };
 /* 難易度の時計は「その画面に入ってからの時間」で回す（S.screenT）。
-   通しの時間（S.t）で回すと、下水や昇りを挟んで路地へ戻ったとき、
-   いきなり最高難度から始まってしまう。1画面ごとに登り直す */
+   通しの時間で回すと、下水や昇りを挟んで路地へ戻ったときに
+   いきなり最高難度から始まる。1画面ごとに登り直す。
+
+   ただし登り直すだけだと、いつまでも同じ坂で、走者はほぼ無限に生き残れる。
+   そこで **同じ画面に戻ってくるたびに坂を1割きつくする**。
+   同じ時間で難易度が先へ進むようになり、やがて登りきってしまう */
+/** ステージごとの厳しさ。1周ごとに CONFIG.stageGain 倍 */
+const hard = () => Math.pow(CONFIG.stageGain, Math.max(0, S.stage-1));
+/** 生の進み具合。1.0 が「これまでの最高」で、そこから先は overdrive */
+const densRaw = () => S.screenT*hard()/CONFIG.ramp;
 /** 混み具合 0..1。人の密度・敵の速さ・点の入りはここから */
-const dens  = () => clamp(S.screenT/CONFIG.ramp, 0, 1);
+const dens  = () => clamp(densRaw(), 0, 1);
+/** 1.0 を超えたぶん。譜面の上限を突き抜けて、速さと密度に直接乗る */
+const over  = () => clamp(densRaw()-1, 0, 2);
 /** 監視の激化 0..1。人混みより速く進む。路地を終わらせるのはこちら */
-const densW = () => clamp(S.screenT/CONFIG.watchRamp, 0, 1);
+const densW = () => clamp(S.screenT*hard()/CONFIG.watchRamp, 0, 1);
 const scoreRate  = () => lerp(CONFIG.scoreRate.far,  CONFIG.scoreRate.near,  dens());
-const enemySpeed = () => lerp(CONFIG.enemySpeed.far, CONFIG.enemySpeed.near, dens());
+const enemySpeed = () => lerp(CONFIG.enemySpeed.far, CONFIG.enemySpeed.near, dens())
+                       * (1 + over()*CONFIG.overdrive);
 function toast(txt){ S.toasts.push({txt,life:1.0}); if(S.toasts.length>3) S.toasts.shift(); }
 
 /* ============================================================
@@ -1409,7 +1426,8 @@ const add=(kind,at,lane,x,vx)=>S.ents.push({kind,at,lane,x,vx,dead:false});
 
 /** 歩いてくる人。時間が経つほど間隔が詰まる */
 function fillCrowd(){
-  const gap = lerp(CONFIG.spawn.crowdGapFar, CONFIG.spawn.crowdGapNear, dens());
+  const gap = lerp(CONFIG.spawn.crowdGapFar, CONFIG.spawn.crowdGapNear, dens())
+            / (1 + over()*CONFIG.overdrive);
   while(S.cursor < S.dist + VH*1.7){
     const p = PATTERNS[Math.floor(rnd()*PATTERNS.length)];
     for(const row of p.rows) row.cells.forEach((c,i)=>{
@@ -1710,7 +1728,7 @@ function updateTouka(dt){
    しゃがみ続ければ必ず跳ぶことになるので、いつ放すかがそのまま判断になる
    ------------------------------------------------------------ */
 /** 下水の深さ 0..1。潜るほど地形が険しくなる */
-const swHeat = () => clamp(S.swDist/CONFIG.sewer.ramp, 0, 1);
+const swHeat = () => clamp(S.swDist*hard()/CONFIG.sewer.ramp, 0, 1);
 const swSpeed = () => CONFIG.sewer.speed*(1+dens()*0.20+swHeat()*CONFIG.sewer.speedUp);
 /** その位置に浮いている足場（一方通行。下からは通り抜ける） */
 function platAt(x){
