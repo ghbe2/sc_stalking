@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813R";
+const BUILD = "0813S";
 
 /* ============================================================
    CONFIG
@@ -1963,6 +1963,44 @@ const SFX = (()=>{
     src.connect(f); f.connect(g); g.connect(master);
     src.start(t0); src.stop(t0+dur+0.02);
   }
+  /* 落下と昇りには曲を置かない。ただし無音にはしない。
+     短い音を鳴らし続けると忙しないので、**一本の持続音を出しっぱなし**にして、
+     そこに手応えの音を重ねる。落下は風、昇りは坑の反響 */
+  const AMBI = {
+    wind: { lp: 900, vol: 0.055, wob: 0.35 },   // 落ちている風
+    pipe: { lp: 320, vol: 0.040, wob: 0.10 },   // 縦坑にこもる音
+  };
+  const FOR_AMBI = { falling:"wind", climb:"pipe" };
+  const live = {};
+  function ambStop(name){
+    const d = live[name];
+    if(!d) return;
+    delete live[name];
+    try{
+      d.g.gain.cancelScheduledValues(ac.currentTime);
+      d.g.gain.setTargetAtTime(0.0001, ac.currentTime, 0.10);
+      d.src.stop(ac.currentTime + 0.5);
+    }catch(e){}
+  }
+  function ambStart(name){
+    if(live[name] || !ac) return;
+    const C = AMBI[name];
+    if(!noiseBuf) noise(0.001, {vol:0.0001});        // 雑音の元を用意させる
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf; src.loop = true;
+    const f = ac.createBiquadFilter(); f.type="lowpass"; f.frequency.value = C.lp;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, ac.currentTime);
+    g.gain.setTargetAtTime(C.vol, ac.currentTime, 0.25);
+    // 少し揺らす。まったいらな雑音は「音が壊れている」ように聞こえる
+    const lfo = ac.createOscillator(), lg = ac.createGain();
+    lfo.frequency.value = 0.7; lg.gain.value = C.lp*C.wob;
+    lfo.connect(lg); lg.connect(f.frequency); lfo.start();
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start();
+    live[name] = { src, g, lfo };
+  }
+
   // 場面ごとの音。名前で呼べるようにして、鳴らす場所には理屈を書かない
   const BANK = {
     move:    ()=> tone(520, 700, 0.045, {vol:0.35}),
@@ -1982,11 +2020,22 @@ const SFX = (()=>{
     over:    ()=>{ [440,330,247,165].forEach((f,i)=>tone(f,f,0.20,{vol:0.55,delay:i*0.16,type:"triangle"})); },
     clear:   ()=>{ [523,659,784,1047].forEach((f,i)=>tone(f,f,0.11,{vol:0.55,delay:i*0.08})); },
     stage:   ()=>{ [784,1047].forEach((f,i)=>tone(f,f,0.10,{vol:0.5,delay:i*0.09})); },
+    rung:    ()=>{ tone(1400,900,0.04,{vol:0.28}); noise(0.04,{vol:0.16,hp:3000}); },
+    wall:    ()=> noise(0.03,{vol:0.10,lp:2200}),
   };
   return {
     wake,
     play(name){ if(!on) return; wake(); const f=BANK[name]; if(f) f(); },
-    toggle(){ on=!on; if(on) wake(); try{ localStorage.setItem("sugake_se", on?"1":"0"); }catch(e){} return on; },
+    /** いま出ている持続音。DEBUG 表示と動作確認に使う */
+    ambient(){ return Object.keys(live).join(",")||"none"; },
+    /** 画面に合わせた持続音。実時間で毎フレーム呼ぶ（入り切りは中で見る） */
+    ambience(scene){
+      const want = on ? (FOR_AMBI[scene] || null) : null;
+      for(const n in AMBI) if(n !== want) ambStop(n);
+      if(want){ wake(); ambStart(want); }
+    },
+    toggle(){ on=!on; if(on) wake(); else for(const n in AMBI) ambStop(n);
+              try{ localStorage.setItem("sugake_se", on?"1":"0"); }catch(e){} return on; },
     get on(){ return on; },
     set on(v){ on=v; },
   };
@@ -2302,7 +2351,9 @@ function updateFall(dt){
   if(S.fallX<=10 || S.fallX>=VW-10) S.fallVX=0;
 
   S.fallT += dt;
+  const wallWas = Math.floor(S.fallDist/44);
   S.fallDist += F.scroll*dt;
+  if(Math.floor(S.fallDist/44) !== wallWas) se("wall");   // 壁が1つ過ぎた
 
   for(const it of S.fallItems){
     if(it.dead) continue;
@@ -2328,8 +2379,10 @@ function gotoClimb(){
 function updateClimb(dt){
   const C=CONFIG.climb;
   S.climbT += dt;
+  const rungWas = Math.floor(S.climbY/26);
   if(edge.tap){ S.climbY += C.perTap; se("tap"); }
   S.climbY += C.auto*dt;
+  if(Math.floor(S.climbY/26) !== rungWas) se("rung");     // 桟を1つ越えた
   // 群れは加速しながら這い上がってくる。追いつかれても傷は負わない
   S.climbSwarm += (C.swarmSpeed + C.swarmAccel*S.climbT)*dt;
 
@@ -3315,6 +3368,7 @@ function frame(now){
   if(innerWidth!==lastW||innerHeight!==lastH) resize();
   update(dt); render(); updateDebug();
   BGM.follow(S.scene, dt);          // 実時間で呼ぶ。update の中だと計測用の早送りに巻き込まれる
+  SFX.ambience(S.scene);            // 落下と昇りの持続音。曲を置かない画面を無音にしない
   for(const k in edge) delete edge[k];
   requestAnimationFrame(frame);
 }
@@ -3362,6 +3416,7 @@ function updateDebug(){
 `${S.scene} t${S.t.toFixed(1)} seed ${S.seed}
 HEART ${S.hearts}${S.scene==="sewer"?`  SW heat ${swHeat().toFixed(2)} noise ${S.swNoise.toFixed(0)}/${CONFIG.sewer.noiseMax} spd ${swSpeed().toFixed(0)} dist ${S.swDist.toFixed(0)}`:""}
 BGM ${BGM.playing()}本 ${BGM.state()||"none"}
+AMB ${SFX.ambient()}
 DENS ${dens().toFixed(2)} gap x${lerp(CONFIG.spawn.crowdGapFar,CONFIG.spawn.crowdGapNear,dens()).toFixed(2)}
 RATE +${scoreRate().toFixed(0)}/s  enemy x${enemySpeed().toFixed(2)}
 WATCH ${S.watches.length}/${CONFIG.lanes} 列 [${S.watches.map(w=>w.lane).sort().join(",")||"-"}] 叫び=${perScream()}列 densW ${densW().toFixed(2)}
