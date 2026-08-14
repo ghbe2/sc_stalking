@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0813Q";
+const BUILD = "0813R";
 
 /* ============================================================
    CONFIG
@@ -2009,14 +2009,13 @@ const BGM = (()=>{
     sewer: "sounds/下水フェーズ.mp3",
     touka: "sounds/トウカフェーズ.mp3",
   };
-  /* 落下と昇りは無音にする。
-     ここに曲を割り当てると、5秒の落下と15秒の昇りを挟むたびに
-     1.6秒のクロスフェードが起きて、常に2曲が混ざって聞こえる。
-     無音を挟めば境目で必ず1曲が終わりきるので、重なりようがない */
+  /* 落下と昇りは無音。ここに曲を割り当てると、5秒の落下と15秒の昇りを挟むたびに
+     切り替えが起きて、常に2曲が混ざって聞こえる */
   const FOR_SCENE = { play:"alley", sewer:"sewer", touka:"touka" };
-  const VOL = 0.42, FADE = 1.0;          // 音量と、切り替えにかける秒数
-  const el = {};
-  let woke = false;
+  const VOL = 0.42, FADE = 0.8;
+  const el = {}, pending = {};
+  let woke = false, cur = null;
+
   function get(name){
     if(el[name]) return el[name];
     const a = new Audio(encodeURI(SRC[name]));
@@ -2024,27 +2023,56 @@ const BGM = (()=>{
     el[name] = a;
     return a;
   }
+  /* 確実に止める。
+     play() が返す約束が解決する前に pause() を呼んでも効かないブラウザがある。
+     音量を0にするだけでは、鳴り続けたまま次の曲が重なる。
+     約束の完了を待ってから止め、さらに毎フレーム鳴りっぱなしを拾って止め直す */
+  function hardStop(name){
+    const a = el[name];
+    if(!a) return;
+    a.volume = 0;
+    const stop = ()=>{ try{ a.pause(); a.currentTime = a.currentTime; }catch(e){} };
+    if(pending[name] && pending[name].then) pending[name].then(stop, stop);
+    stop();
+  }
   return {
     /** 画面に合わせて鳴らす。実時間で呼ぶこと（update から呼ぶと早送りされる） */
     follow(scene, dt){
       if(!woke) return;
-      const want = SFX.on ? FOR_SCENE[scene] : null;
-      if(want) get(want);
-      for(const name of Object.keys(SRC)){
-        const a = el[name];
-        if(!a) continue;
-        const target = (name===want) ? VOL : 0;
-        const step = VOL/FADE*dt;
-        a.volume = clamp(a.volume + clamp(target-a.volume, -step, step), 0, 1);
-        if(target>0 && a.paused) a.play().catch(()=>{});
-        if(a.volume<=0.001 && !a.paused) a.pause();
+      const want = SFX.on ? (FOR_SCENE[scene] || null) : null;
+      if(want !== cur){
+        // 切り替わった瞬間に、他は全部止める。重ねてすれ違わせない
+        for(const n in SRC) if(n !== want) hardStop(n);
+        cur = want;
+        if(want){
+          const a = get(want);
+          a.volume = 0;
+          pending[want] = a.play();
+          if(pending[want] && pending[want].catch) pending[want].catch(()=>{});
+        }
+      }
+      // 鳴らしていいのは1本だけ。取りこぼしはここで毎フレーム拾い直す
+      for(const n in SRC){
+        const a = el[n];
+        if(!a || n === cur) continue;
+        if(!a.paused || a.volume > 0) hardStop(n);
+      }
+      if(cur){
+        const a = el[cur];
+        a.volume = clamp(a.volume + VOL/FADE*dt, 0, VOL);
+        if(a.paused){
+          pending[cur] = a.play();
+          if(pending[cur] && pending[cur].catch) pending[cur].catch(()=>{});
+        }
       }
     },
     /** 最初の入力で起こす。ブラウザは触られるまで鳴らせない */
     wake(){ woke = true; },
     /** いま何がどれだけ鳴っているか。DEBUG 表示と動作確認に使う */
     state(){ return Object.keys(el).map(n => n+" "+el[n].volume.toFixed(2)+(el[n].paused?"-":"+")).join(" "); },
-    stop(){ for(const n in el){ el[n].pause(); el[n].volume=0; } },
+    /** 鳴っている本数。2以上なら重なっている */
+    playing(){ return Object.keys(el).filter(n => !el[n].paused && el[n].volume > 0.01).length; },
+    stop(){ cur=null; for(const n in el) hardStop(n); },
   };
 })();
 
@@ -3333,7 +3361,7 @@ function updateDebug(){
   dbg.textContent=
 `${S.scene} t${S.t.toFixed(1)} seed ${S.seed}
 HEART ${S.hearts}${S.scene==="sewer"?`  SW heat ${swHeat().toFixed(2)} noise ${S.swNoise.toFixed(0)}/${CONFIG.sewer.noiseMax} spd ${swSpeed().toFixed(0)} dist ${S.swDist.toFixed(0)}`:""}
-BGM ${BGM.state()||"none"}
+BGM ${BGM.playing()}本 ${BGM.state()||"none"}
 DENS ${dens().toFixed(2)} gap x${lerp(CONFIG.spawn.crowdGapFar,CONFIG.spawn.crowdGapNear,dens()).toFixed(2)}
 RATE +${scoreRate().toFixed(0)}/s  enemy x${enemySpeed().toFixed(2)}
 WATCH ${S.watches.length}/${CONFIG.lanes} 列 [${S.watches.map(w=>w.lane).sort().join(",")||"-"}] 叫び=${perScream()}列 densW ${densW().toFixed(2)}
