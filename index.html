@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814U";
+const BUILD = "0814V";
 
 /* ============================================================
    CONFIG
@@ -155,7 +155,7 @@ const CONFIG = {
     // low は溜めなしの跳躍でも越えられる高さにする（溜め量の精度は要求しない）
     batW: 9, batH: 26, batStack: 26, batDrift: -22,
     batBands: {
-      high: [[28, 184]],
+      high: [[24, 184]],
       low:  [[ 0,  28]],
     },
     // 「伏せる→跳ぶ」だけは持ち替えが要る。押しっぱなしを一度切って、
@@ -3476,7 +3476,9 @@ function onDown(e){
   const r=cv.getBoundingClientRect();
   touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
   // 路地とトウカは 1 タップ 1 列。落下は touch.dir を押しっぱなしで使うので edge は立てない
-  if(S.scene==="play"||S.scene==="touka") edge[touch.dir<0?"left":"right"]=true;
+  // 左右で選ぶ画面。あみだの入口選びもここに含める
+  if(S.scene==="play"||S.scene==="touka"||S.scene==="climb")
+    edge[touch.dir<0?"left":"right"]=true;
 }
 function onMove(e){ if(!touch.down)return; const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; }
 function onUp(){ touch.down=false; touch.dir=0; }
@@ -5091,13 +5093,14 @@ function drawSewerScene(){
            最大ジャンプの頭は地面から約153px。そこまで蝙蝠が居ないと、
            上を飛べそうに見えてしまう */
         const need = C.maxJump*C.maxJump/(2*C.gravity) + C.standH;
-        const rows = Math.max(3, Math.ceil((need-lo)/30)+1);
+        // 跳んでも越えられないと分かれば十分。上まで積み切らない
+        const rows = Math.max(3, Math.ceil((need*0.82-lo)/30)+1);
         for(let r=0;r<rows;r++){
           // 下ほど密、上ほど疎。壁のように塞ぎつつ、数は抑える
           const n = r===0 ? 3 : (r%2===0 ? 2 : 1);
           // 一番下の段の腹を、塞ぐ帯の下端にぴったり付ける。
           // 少しでも浮かせると「高いところを飛んでいる」に見えてしまう
-          const by = bot-7-r*30;
+          const by = bot-2-r*30;
           if(by<top) break;
           for(let k=0;k<n;k++){
             const bx = sx + (k-(n-1)/2)*26;
@@ -5268,16 +5271,20 @@ function drawBrief(){
   textC(B.band, by+9, PAL.bg, 1, J28);
 
   // ② 図。ミナリの左右に矢印、その下に画面ごとの肝
-  // 図ごとに背丈が違うので、次の行までの間も図に合わせて決める
-  const GAP={ pair:144, cam:126, ladder:92, hole:86, wave:74, food:60, amida:104,
-              tap:96, hold:96, tapx:96, net:70, time:70, swarm:70 };
-  let y=by+96;
-  for(const key of ["a","b","c"]){
-    const it=B[key]; if(!it) continue;
+  /* 説明はぎゅう詰めにしない。**残りの高さを要素の数で割って**、
+     等間隔に散らす。詰めると読まれないし、寄せると余白が偏る */
+  const HGT={ pair:104, cam:96, ladder:78, hole:62, wave:50, food:38, amida:80,
+              tap:70, hold:70, tapx:70, net:40, time:56, swarm:40 };
+  const items=["a","b","c"].map(k=>B[k]).filter(Boolean);
+  const areaTop=by+64, areaBot=VH-FOOT_H-40;
+  const used=items.reduce((n,it)=>n+(HGT[it[0]]||70)+(it[1]?26:0), 0);
+  const slack=Math.max(0, (areaBot-areaTop-used)/(items.length+1));
+  let y=areaTop+slack;
+  for(const it of items){
+    const h=HGT[it[0]]||70;
     briefFig(it[0], VW/2, y);
-    const gap=GAP[it[0]]||90;
-    if(it[1]) textC(it[1], y+gap-24, PAL.d4, 1, it[1].length>4?J16:F12);
-    y += gap;
+    if(it[1]) textC(it[1], y+h+2, PAL.d4, 1, it[1].length>4?J16:F12);
+    y += h + (it[1]?26:0) + slack;
   }
 
   // ③ 自動送り。放っておいても始まるので、待ち時間を見せる
