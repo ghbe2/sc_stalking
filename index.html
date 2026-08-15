@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814T";
+const BUILD = "0814U";
 
 /* ============================================================
    CONFIG
@@ -3105,6 +3105,7 @@ const S = {
   ents:[], watches:[], seen:0, cursor:0,   // seen = 見られている時間。列ごとではなくミナリ側に1本
   nextItem:0, nextWoman:0, nextWatch:0, nextManhole:0,
   screenT:0,                    // その画面に入ってからの秒数（難易度の時計）
+  toukaFrom:"play",             // トウカへ連れて来られた場所。逃げ切ったらここの続きへ
   watched:false, spotT:0,       // 見張られている / 捕捉されてからの秒数
   briefKey:"", briefT:0,        // 画面のあいだに挟む説明
   shake:0, toasts:[], bang:0,
@@ -3365,6 +3366,7 @@ const BGM = (()=>{
    ------------------------------------------------------------ */
 function finish(how){
   se(how==="touka" ? "caught" : "over");
+  S.screenT=0;
   S.end = how;
   S.score = Math.floor(S.score);
   S.best = Math.max(S.best, S.score);
@@ -3721,7 +3723,10 @@ function updateClimb(dt){
    ------------------------------------------------------------ */
 function gotoTouka(){
   const C=CONFIG.touka;
-  S.scene="touka"; S.screenT=0; S.tkT=0; S.tkNets=[]; S.tkPoints=[];
+  S.scene="touka"; S.screenT=0; S.tkT=0;
+  // どこから連れて来られたか。逃げ切ったあとの戻り先を決める
+  if(S.toukaFrom===undefined) S.toukaFrom="play";
+  S.tkNets=[]; S.tkPoints=[];
   S.tkDodge=0; S.tkDodgeT=0; S.tkLane=1; S.tkLaneF=1;
   S.tkLane=S.tkLaneF=Math.floor(C.lanes/2);
   S.tkNext=0.9;
@@ -3800,7 +3805,11 @@ function updateTouka(dt){
 
   if(S.tkT >= C.surviveTime){
     S.score += C.bonus; toast("+"+C.bonus); se("clear");
-    S.stage++; enterAlley();
+    /* 元居た場所の**続き**へ戻す。路地で捕まったなら、そのまま逃げ道の
+       落下へ。下水で捕まったなら、地上へ出る梯子へ。
+       路地へ直接戻すと、逃げ切ったのに振り出しに立たされて筋が通らない */
+    if(S.toukaFrom==="sewer") enterClimb();
+    else enterFall();
   }
 }
 
@@ -3929,7 +3938,7 @@ function updateSewer(dt){
     }
   }
   // 気配が積もりきると、トウカに位置を掴まれる
-  if(S.swNoise >= C.noiseMax) return enterTouka();
+  if(S.swNoise >= C.noiseMax){ S.toukaFrom="sewer"; return enterTouka(); }
 
   // 水に落ちた
   if(S.swY < -34){
@@ -3994,7 +4003,7 @@ function updateWatches(dt){
   if(watched(S.lane)) S.seen += dt;
   else                S.seen = Math.max(0, S.seen - dt*CONFIG.watch.cool);
 
-  if(S.seen >= CONFIG.watch.catch){ S.spotT=1.0; enterTouka(); return true; }
+  if(S.seen >= CONFIG.watch.catch){ S.spotT=1.0; S.toukaFrom="play"; enterTouka(); return true; }
   return false;
 }
 
@@ -4077,6 +4086,11 @@ function update(dt){
   if(S.scene==="sewer")   return updateSewer(dt);
   if(S.scene==="climb")   return updateClimb(dt);
   if(S.scene==="touka")   return updateTouka(dt);
+  if(S.scene==="over"){
+    // 一度タイトルへ戻す。すぐ次が始まると、負けたことが流れてしまう
+    if(edge.start && S.screenT>0.8){ S.scene="title"; S.screenT=0; }
+    return;
+  }
   if(S.scene!=="play"){ if(edge.start) startRun(); return; }
   updatePlay(dt);
 }
@@ -4938,15 +4952,20 @@ function drawClimb(){
 
   px(0,HUD_H,VW,VH-HUD_H-FOOT_H,PAL.bg);
 
-  // 縦線3本。選んでいる線だけ明るい
+  // 縦線3本は梯子として描く。ここは「あみだ」であると同時に「梯子」なので、
+  // 線ではなく梯子に見えたほうが、何をしているのか分かる
   for(let i=0;i<3;i++){
-    const on = S.climbPhase==="pick" ? i===S.climbLine : i===S.climbLine;
-    px(lx(i)-2, top, 4, bot-top, on?PAL.d4:PAL.d2);
+    const on = i===S.climbLine;
+    const c = on?PAL.d4:PAL.d2, x=lx(i);
+    px(x-11, top, 3, bot-top, c);          // 左の縦棒
+    px(x+8,  top, 3, bot-top, c);          // 右の縦棒
+    for(let y=top+6; y<bot; y+=18) px(x-11, y, 22, 3, on?PAL.d3:PAL.d1);   // 桟
   }
   // 桟
+  // 渡りの桟。梯子と梯子をつなぐ板なので、少し太く明るく
   for(const r of S.amida){
     const y=hy(r.h), x0=lx(r.a), x1=lx(r.a+1);
-    px(x0, y-2, x1-x0, 4, PAL.d3);
+    px(x0, y-3, x1-x0, 6, PAL.warn);
   }
   // 出口。当たりにはおにぎり、外れは空
   for(let i=0;i<3;i++){
