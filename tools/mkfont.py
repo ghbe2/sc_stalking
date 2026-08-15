@@ -23,7 +23,7 @@ CHARS = ("0123456789"
 # 文言を変えたらここへ足して、もう一度流すこと。
 JP_TEXT = (
     "にげろ！"
-    "カメラが向いたらかくれろ"
+    "カメラからかくれろ"
     "あぶなくなったら飛び込め"
     "おちる！"
     "おにぎりでハートがもどる"
@@ -51,22 +51,26 @@ SETS = [
 
 def build(name, ttf, cw, ch, size, thr):
     f = ImageFont.truetype(os.path.join(FONTS, ttf), size)
+    asc, _desc = f.getmetrics()
+    # ベースラインを固定する。字ごとに下端で揃えると、p や g の下がりが
+    # 持ち上がって別の字に見える（tap! の p が P に見えていた）
+    drop = max(1, round(ch*0.22))          # ベースラインより下に残す余白
+    base = ch-1-drop                       # 枠の中でのベースラインの行
     rows = {}
     chars = (CHARS + "".join(sorted(set(JP_TEXT)))) if name.startswith("J") else CHARS
     for c in chars:
-        im = Image.new("L", (cw*2, ch*2), 0)
+        im = Image.new("L", (cw*3, ch*3), 0)
         d = ImageDraw.Draw(im)
-        # 左上に寄せて描き、二値化してから枠へ収める
-        d.text((0, 0), c, font=f, fill=255)
+        d.text((cw, 0), c, font=f, fill=255)
         im = im.point(lambda v: 255 if v >= thr else 0)
-        bb = im.getbbox()
         cell = Image.new("L", (cw, ch), 0)
+        bb = im.getbbox()
         if bb:
-            g = im.crop(bb)
-            if g.width > cw or g.height > ch:
-                g = g.crop((0, 0, min(cw, g.width), min(ch, g.height)))
-            # 横は中央、縦は下揃え（ベースラインを揃える）
-            cell.paste(g, ((cw-g.width)//2, ch-g.height-1 if ch-g.height-1 >= 0 else 0))
+            # 横だけ中央へ寄せ、縦はベースラインで揃える
+            x0 = bb[0] - (cw - (bb[2]-bb[0]))//2
+            y0 = asc - base
+            g = im.crop((x0, y0, x0+cw, y0+ch))
+            cell.paste(g, (0, 0))
         px = cell.load()
         rows[c] = ["".join("1" if px[x, y] else "0" for x in range(cw)) for y in range(ch)]
     return rows, chars
