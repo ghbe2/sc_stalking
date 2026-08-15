@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814J";
+const BUILD = "0814K";
 
 /* ============================================================
    CONFIG
@@ -86,8 +86,8 @@ const CONFIG = {
 
   // 走っているだけで点が入る。粘るほどレートが上がる＝これが「粘る理由」
   scoreRate: { far: 10, near: 55 },
-  // 拾いもの。回復のおにぎり・下水のチーズと形が被らないようにする
-  score: { apple: 30, banana: 150 },
+  // 拾いもの。形ごとに点が違う。おにぎりだけは点ではなく回復
+  score: { banana: 30, apple: 80, cheese: 200 },
 
   // 歩いてくる連中だけが速くなる。落ちているアイテムは速くならない
   enemySpeed: { far: 0.85, near: 2.75 },
@@ -123,6 +123,7 @@ const CONFIG = {
                 dashChance: 0.5, dashMul: 2.6, dashSec: 0.55, dashWait: 0.9 },
     apple:    { w:18, h:18 },
     banana:   { w:22, h:16 },
+    cheese:   { w:22, h:20 },
     // 逃げ道なので大きく、飛び込める間合いも深くとる（外すと次まで長い）
     manhole:  { w:34, h:22, depth:26 },
   },
@@ -147,7 +148,7 @@ const CONFIG = {
     speed: 58, gravity: 1040,
     minJump: 300, maxJump: 440, maxCharge: 0.55,
     playerX: 0.26,          // 画面幅に対する立ち位置。前を広く見せる
-    groundY: 0.86,          // プレイ領域に対する地面の高さ
+    groundY: 0.72,          // 遊ぶ面を上げ、下は指を置く余白にする
     standH: 30, crouchH: 16, bodyW: 8,       // 横は据え置き。倍にしたのは縦だけ
 
     // 蝙蝠は2隊形だけ。ふさぐ高さの帯を変えて、伏せるか跳ぶかを決めさせる。
@@ -3405,7 +3406,8 @@ function fillCrowd(){
 /** 落ちているもの。歩かないので、時間が経っても速くならない */
 function spawnItem(){
   if(S.dist < S.nextItem) return;
-  add(rnd()<0.72?"apple":"banana", S.dist+VH*1.2, Math.floor(rnd()*CONFIG.lanes));
+  const r=rnd();
+  add(r<0.45?"banana":r<0.80?"apple":"cheese", S.dist+VH*1.2, Math.floor(rnd()*CONFIG.lanes));
   S.nextItem = S.dist + CONFIG.spawn.itemDist*(0.7+rnd()*0.6);
 }
 function spawnWoman(){
@@ -3583,12 +3585,16 @@ function gotoFall(){
   S.fallX=VW/2; S.fallVX=0; S.fallItems=[];
   const total=CONFIG.fall.duration*CONFIG.fall.scroll;
   const M=36;
-  /* 落ちてくるものを混ぜる。全部おにぎりだと、拾えば必ず回復できてしまう。
-     おにぎりは4割だけにして、残りは点になる果物。
-     「どれを取りに行くか」が判断になる */
-  for(let at=CONFIG.fall.gap; at<total-80; at+=CONFIG.fall.gap){
+  /* 落ちてくるもの。**おにぎりは1個だけ**にする。
+     何個もあると拾えば必ず回復できてしまい、落下が消化試合になる。
+     残りは点になるだけの果物とチーズで、「回復を取りに行くか、点を拾うか」
+     を選ばせる */
+  const slots=[];
+  for(let at=CONFIG.fall.gap; at<total-80; at+=CONFIG.fall.gap) slots.push(at);
+  const riceAt = slots.length ? slots[Math.floor(rnd()*slots.length)] : -1;
+  for(const at of slots){
     const r=rnd();
-    const kind = r<0.40 ? "onigiri" : r<0.72 ? "apple" : "banana";
+    const kind = at===riceAt ? "onigiri" : r<0.45 ? "banana" : r<0.80 ? "apple" : "cheese";
     S.fallItems.push({ at, x: M+rnd()*(VW-M*2), kind, dead:false });
   }
 }
@@ -3618,7 +3624,7 @@ function updateFall(dt){
       if(it.kind==="onigiri" && S.hearts<CONFIG.hearts){
         S.hearts++; S.healed++; toast("ハート回復"); se("heal");
       } else {
-        const p = it.kind==="banana" ? CONFIG.score.banana : CONFIG.score.apple;
+        const p = CONFIG.score[it.kind] || CONFIG.score.banana;
         S.score+=p; toast("+"+p); se("pick");
       }
     }
@@ -3898,7 +3904,7 @@ function updateSewer(dt){
     if(Math.abs(it.x-S.swDist) > (C.bodyW+C.cheeseW)/2) continue;
     const cy = it.hi ? C.cheeseHiY : C.cheeseY;
     if(S.swY+h >= cy && S.swY <= cy+C.cheeseH){
-      it.dead=true; S.score += C.cheeseScore; toast("+"+C.cheeseScore); se("pick");
+      it.dead=true; S.score += CONFIG.score.cheese; toast("+"+CONFIG.score.cheese); se("pick");
     }
   }
   // 梯子は地面からは届かない高さ。段差に乗って、そこから跳んだときだけ手が届く
@@ -3973,7 +3979,7 @@ function updatePlay(dt){
 
     if(e.kind==="manhole"){ se("dive"); return enterFall(); }   // 飛び込む → 落下
 
-    if(e.kind==="apple" || e.kind==="banana"){
+    if(e.kind==="apple" || e.kind==="banana" || e.kind==="cheese"){
       e.dead=true;
       const p = CONFIG.score[e.kind];
       S.score += p; toast("+"+p); se("pick");
@@ -4611,6 +4617,7 @@ function drawActor(e){
     // 拾いものは金で塗る。桃の階調の外にあるので、拾えるものだと一目で分かる
     case "apple":   blitTint(SPR.apple,  x, y+9,  PAL.gold); break;
     case "banana":  blitTint(SPR.banana, x, y+8,  PAL.gold); break;
+    case "cheese":  blitTint(SPR.cheese, x, y+10, PAL.gold); break;
     // 正面の絵しかないので、左右を反転して交互に出す＝体を振って歩いて見える。
     // 女は横切る絵なので反転させず、進む向きにだけ合わせる
     case "man":   blit(SPR.man, x, y+10+(Math.floor(S.t*5)%2), Math.floor(S.t*5)%2===0); break;
@@ -4701,7 +4708,7 @@ function drawFall(){
     if(y<HUD_H-16||y>VH+16) continue;
     // 回復のおにぎりだけ形が違う。果物は金一色で「点」だと分かる
     if(it.kind==="onigiri") blit(SPR.onigiri, it.x, y+10);
-    else blitTint(it.kind==="banana"?SPR.banana:SPR.apple, it.x, y+9, PAL.gold);
+    else blitTint(SPR[it.kind], it.x, y+9, PAL.gold);
   }
   // 落ち始めだけ、マンホールの縁からヤツメウナギが覗いて手を伸ばしてくる。
   // 崖から落ちる者へ差し出される手。掴まれることはない、ただの見送り
@@ -4949,7 +4956,7 @@ function drawSewerScene(){
   for(const it of S.swItems){
     const sx=toScreen(it.x);
     if(sx<-14||sx>VW+14) continue;
-    blit(SPR.cheese, sx, gy-(it.hi?C.cheeseHiY:C.cheeseY));
+    blitTint(SPR.cheese, sx, gy-(it.hi?C.cheeseHiY:C.cheeseY), PAL.gold);
   }
   // 脱出の梯子。掴みに行かないと掴めないので、通り道は塞がない
   for(const L of S.swLadders){
@@ -4972,35 +4979,52 @@ function drawSewerScene(){
 
      ぶら下がる／這う、という形そのものが答えになるので、
      矢印や色に頼らなくても読める。 */
+  /* 障害物。**伏せるのか跳ぶのかが形だけで分かること**が唯一の要件。
+
+       high  天井から下がる蝙蝠の塊。伏せて下をくぐる
+       low   床を這う蛇。跳んで越える
+
+     蝙蝠は縦一列に並べていたが、それだと「列」に見えて生き物に見えない。
+     塊にして、周りに何匹か散らす。 */
   const swarm=(sx,bands,kind)=>{
     const flap=Math.floor(S.t*9)%2?3:0;
     for(const [lo,hi] of bands){
-      const top=gy-hi, bot=gy-lo;
+      const top=Math.max(HUD_H, gy-hi), bot=gy-lo;
       if(kind==="high"){
-        // 天井から下がる。上端を天井にくっつけ、下端を房で終わらせる
-        px(sx-16, Math.max(HUD_H,top), 32, 3, PAL.d2);
-        for(let i=-1;i<=1;i++) px(sx+i*11-1, Math.max(HUD_H,top), 3, bot-top-18, PAL.d1);
-        let k=0;
-        for(let yy=top+10; yy<bot-16; yy+=C.batStack, k++){
-          const jig=(k%2?3:-3), by=yy;
-          px(sx-6+jig, by+8, 12, 14, PAL.d3);                       // 胴
-          px(sx-17+jig, by+4+flap, 12, 6, PAL.d2);                  // 翼
-          px(sx+5+jig, by+4+flap, 12, 6, PAL.d2);
-          px(sx-6+jig, by+2, 4, 6, PAL.d3); px(sx+2+jig, by+2, 4, 6, PAL.d3);  // 耳
-          px(sx-3+jig, by+12, 2, 3, PAL.d5); px(sx+1+jig, by+12, 2, 3, PAL.d5); // 目
+        // 天井から垂れる根。塊はここからぶら下がっている
+        px(sx-20, top, 40, 4, PAL.d2);
+        for(let i=-1;i<=1;i++) px(sx+i*13-2, top, 4, Math.max(0,(bot-top)*0.28), PAL.d1);
+        // 塊。菱形に敷き詰めて、輪郭を持つ一つの群れに見せる
+        const cy=(top+bot)/2, rh=(bot-top)*0.34, rw=34;
+        for(let row=-3;row<=3;row++){
+          const t=1-Math.abs(row)/3.6;
+          const n=Math.max(1,Math.round(t*4));
+          for(let k=0;k<n;k++){
+            const bx=sx+(k-(n-1)/2)*20+((row%2)?8:0);
+            const by=cy+row*rh*0.30;
+            if(by<top+6||by>bot-6) continue;
+            px(bx-6, by, 12, 14, PAL.d3);                                 // 胴
+            px(bx-16, by-4+flap, 11, 6, PAL.d2);                          // 翼
+            px(bx+5, by-4+flap, 11, 6, PAL.d2);
+            px(bx-6, by-5, 4, 6, PAL.d3); px(bx+2, by-5, 4, 6, PAL.d3);   // 耳
+            px(bx-3, by+4, 2, 3, PAL.d5); px(bx+1, by+4, 2, 3, PAL.d5);   // 目
+          }
         }
-        // 下端。ここまでが塞がっているという線
-        px(sx-14, bot-4, 28, 4, PAL.d4);
+        // 塊の下端。ここまでが塞がっているという線
+        px(sx-rw, bot-5, rw*2, 5, PAL.d4);
       } else {
-        // 床を這う。うねりながら地面を進む
-        const h=bot-top;
-        for(let i=-20;i<=20;i+=2){
-          const wob=Math.round(Math.sin(i*0.32 + S.t*7)*(h*0.22));
-          px(sx+i, bot-h*0.5+wob-3, 2, 6, PAL.d3);
+        // 床を這う蛇。太い胴がうねり、頭を持ち上げている
+        const h=bot-top, midY=bot-h*0.42;
+        for(let i=-34;i<=26;i+=2){
+          const wob=Math.round(Math.sin(i*0.20 + S.t*6)*(h*0.26));
+          const th=Math.round(10 - Math.abs(i+34)/60*4);
+          px(sx+i, midY+wob-th/2, 3, th, PAL.d3);
         }
-        px(sx+16, bot-h*0.5+Math.round(Math.sin(6.4+S.t*7)*(h*0.22))-6, 9, 9, PAL.d4);  // 頭
-        px(sx+21, bot-h*0.5+Math.round(Math.sin(6.4+S.t*7)*(h*0.22))-3, 3, 2, PAL.warn); // 目
-        px(sx-14, bot-2, 28, 2, PAL.d2);                            // 影
+        const hw=Math.round(Math.sin(26*0.20+S.t*6)*(h*0.26));
+        px(sx+24, midY+hw-9, 16, 12, PAL.d4);                 // 頭
+        px(sx+34, midY+hw-6, 5, 3, PAL.warn);                 // 目
+        px(sx+38, midY+hw-1, 8, 2, PAL.warn);                 // 舌
+        px(sx-34, bot-3, 68, 3, PAL.d1);                      // 影
       }
     }
   };
