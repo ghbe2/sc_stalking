@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814V";
+const BUILD = "0814W";
 
 /* ============================================================
    CONFIG
@@ -3093,7 +3093,7 @@ const S = {
   t:0, score:0, dist:0, stage:1, startStage:1,
   fallT:0, fallDist:0, fallItems:[], healed:0, fallX:0, fallVX:0,
   climbY:0, climbSwarm:0, climbItems:[], climbT:0,
-  climbPhase:"pick", climbLine:1, climbPick:0, amida:[], climbGoal:0,
+  climbPhase:"pick", climbLine:1, climbPick:0, amida:[], climbGoal:0, climbExits:[],
   tkT:0, tkLane:1, tkLaneF:1, tkNets:[], tkNext:0, tkPoints:[],
   tkDodge:0, tkDodgeT:0,        // 避けている向き（-1/0/1）と、戻るまでの一拍
   // 下水: y は地面からの高さ。charge は溜め秒数
@@ -3191,8 +3191,9 @@ const SFX = (()=>{
      短い音を鳴らし続けると忙しないので、**一本の持続音を出しっぱなし**にして、
      そこに手応えの音を重ねる。落下は風、昇りは坑の反響 */
   const AMBI = {
-    // 落ちている風。落下のあいだ、ずっと鳴っている
-    wind:  { lp: 1400, vol: 0.115, wob: 0.45 },
+    // 落ちている音。雑音の風ではなく、**続く笛の音**にする。
+    // 頭で一度だけ鳴らすのではなく、落ちているあいだ「ぴゅ〜」と伸ばす
+    wind:  { tone: 1250, to: 520, vib: 26, vol: 0.085 },
     // 縦坑にこもる音
     pipe:  { lp: 320,  vol: 0.040, wob: 0.10 },
     // 登っている音。手をかけ続けているあいだ鳴らす
@@ -3213,6 +3214,21 @@ const SFX = (()=>{
   function ambStart(name){
     if(live[name] || !ac) return;
     const C = AMBI[name];
+    if(C.tone){
+      // 音程のある持続音。下へ滑らせてから、細かく震わせて伸ばす
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(C.tone, ac.currentTime);
+      o.frequency.exponentialRampToValueAtTime(C.to, ac.currentTime + 1.4);
+      const lfo = ac.createOscillator(), lg = ac.createGain();
+      lfo.frequency.value = 5.5; lg.gain.value = C.vib;
+      lfo.connect(lg); lg.connect(o.frequency); lfo.start();
+      g.gain.setValueAtTime(0.0001, ac.currentTime);
+      g.gain.setTargetAtTime(C.vol, ac.currentTime, 0.06);
+      o.connect(g); g.connect(master); o.start();
+      live[name] = { src:o, g, lfo };
+      return;
+    }
     if(!noiseBuf) noise(0.001, {vol:0.0001});        // 雑音の元を用意させる
     const src = ac.createBufferSource();
     src.buffer = noiseBuf; src.loop = true;
@@ -3593,7 +3609,7 @@ function startRun(){
    落下 — マンホールに飛び込んだあと。おにぎりを拾ってハートを取り戻す
    ------------------------------------------------------------ */
 function gotoFall(){
-  S.scene="falling"; S.screenT=0; S.fallT=0; se("fall"); S.fallDist=0; S.healed=0;
+  S.scene="falling"; S.screenT=0; S.fallT=0;   // 落ちる音は持続音のほうで鳴る S.fallDist=0; S.healed=0;
   S.fallX=VW/2; S.fallVX=0; S.fallItems=[];
   const total=CONFIG.fall.duration*CONFIG.fall.scroll;
   const M=36;
@@ -3674,8 +3690,11 @@ function gotoClimb(){
                    a:Math.floor(rnd()*2) });     // a と a+1 をつなぐ
   }
   S.amida.sort((p,q)=>p.h-q.h);
-  // どの入口がおにぎりに着くか。あみだを解いて、当たりの出口を決める
-  S.climbGoal=Math.floor(rnd()*3);
+  // 出口は3つとも中身が決まっている。バナナ・なし・おにぎりを混ぜて置く
+  const bag=["banana","", "onigiri"];
+  for(let i=bag.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); [bag[i],bag[j]]=[bag[j],bag[i]]; }
+  S.climbExits=bag;
+  S.climbGoal=bag.indexOf("onigiri");
   S.climbItems=[];
 }
 /** 入口 i から登ったときの出口 */
@@ -3709,11 +3728,13 @@ function updateClimb(dt){
     }
   }
   if(S.climbY>=C.total){
-    // 当たりの線に着いていれば回復
-    if(S.climbLine===S.climbGoal && S.hearts<CONFIG.hearts){
-      S.hearts++; S.healed++; toast("ハート回復"); se("heal");
-    } else if(S.climbLine===S.climbGoal){
-      S.score+=CONFIG.score.apple; toast("+"+CONFIG.score.apple); se("pick");
+    // 着いた出口の中身をもらう。なにも無い出口もある
+    const got=S.climbExits[S.climbLine];
+    if(got==="onigiri"){
+      if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); se("heal"); }
+      else { S.score+=CONFIG.score.apple; toast("+"+CONFIG.score.apple); se("pick"); }
+    } else if(got){
+      S.score+=CONFIG.score[got]; toast("+"+CONFIG.score[got]); se("pick");
     }
     se("stage"); S.stage++; enterAlley();
   }
@@ -4969,10 +4990,12 @@ function drawClimb(){
     const y=hy(r.h), x0=lx(r.a), x1=lx(r.a+1);
     px(x0, y-3, x1-x0, 6, PAL.warn);
   }
-  // 出口。当たりにはおにぎり、外れは空
+  // 出口。3つとも中身が見えている。なにも無い出口もある
   for(let i=0;i<3;i++){
-    if(i===S.climbGoal) blit(SPR.onigiri, lx(i), top-6);
-    else { ring(lx(i), top-16, 10, 6, PAL.d1, 2); }
+    const k=S.climbExits[i];
+    if(k==="onigiri") blit(SPR.onigiri, lx(i), top-6);
+    else if(k) blitTint(SPR[k], lx(i), top-6, PAL.gold);
+    else ring(lx(i), top-16, 12, 7, PAL.d1, 2);
   }
   // 入口。選んでいるところに三角
   for(let i=0;i<3;i++){
