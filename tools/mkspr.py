@@ -52,8 +52,11 @@ SPRITES = [
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22),
     ("minariClimbB", "characters/minari_ladder_climb_B.png", 40, 52, 0, 0, 0.22),
     # ── トウカと部下。背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05 ──
-    ("toukaA",       "characters/touka_approach_A.png",    108, 148, 0, 0, 0.10),
-    ("toukaB",       "characters/touka_approach_B.png",    108, 148, 0, 0, 0.10),
+    # 4枚で1周する（A→A′→B→B′）。2枚だと動きが硬い
+    ("toukaA",       "characters/touka_approach_A.png",        108, 148, 0, 0, 0.10),
+    ("toukaA2",      "characters/touka_approach_A_prime.png",  108, 148, 0, 0, 0.10),
+    ("toukaB",       "characters/touka_approach_B.png",        108, 148, 0, 0, 0.10),
+    ("toukaB2",      "characters/touka_approach_B_prime.png",  108, 148, 0, 0, 0.10),
     ("lampReady",    "characters/amaru_net_ready.png",      88, 116, 0, 0, 0.10),
     ("lampThrow",    "characters/amaru_net_throw.png",     108, 116, 0, 0, 0.10),
     # 網は奥から手前へ。大きさの段で近づくのを見せる
