@@ -19,63 +19,57 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 IMG  = os.path.join(ROOT, "images")
 
-# 液晶の地。ここへ寄せることで、背景と同じ空気にする
-LCD      = (0xed, 0xda, 0xe3)
-LCD_MIX  = 0.14      # 地へ寄せる割合
+# 監視モニタの画面。暗い地に桃で光る。
+# **絵は色を持たない。** 明暗の5段だけで描く（監視カメラの映像なので）。
+# 狸・猪・狐の区別は、色ではなくシルエットで付ける。
+RAMP = ["#4a2240", "#8e4272", "#d074a4", "#f6b4d2", "#ffe8f2"]
+GAMMA = 0.80         # 明暗の伸ばし方。1.0 だと素直、小さいほど明るい側へ寄る
 ALPHA_TH = 128       # これ未満は透過。中間の柔らかい縁は作らない
-
-# 地との最低限の差。白いTシャツと淡い肌は地の薄桃に近く、このままだと溶ける。
-# 輪郭線は足さない方針なので、色そのものを地から引き離して輪郭を作る
-MIN_GAP  = 46
 
 # 焼き込まれた背景（ピンクのベタ）を抜くときの許容差
 BG_TOL = 34
 
-# 実機（縦持ちスマホ）は仮想 150x320 になる。レーン幅は約37px。
-# 寸法はこの幅を基準に決める。大きい画面では余白が増えるだけで崩れない。
-# name: (ファイル, 幅, 高さ, 色数, 太らせ)
+# 実機（縦持ちスマホ）は仮想 300x640 になる。レーン幅は約75px。
+# 監視モニタの映像なので、絵は明暗の5段だけで描く。
+# name: (ファイル, 幅, 高さ, 使わない, 太らせ, 明るさの下駄)
 SPRITES = [
     # ── ミナリ ──────────────────────────────────────────────
-    ("minariBackA",  "characters/minari_back_run_A.png",   22, 26, 11),
-    ("minariBackB",  "characters/minari_back_run_B.png",   22, 26, 11),
+    ("minariBackA",  "characters/minari_back_run_A.png",   44, 52, 0, 0, 0.22),
+    ("minariBackB",  "characters/minari_back_run_B.png",   44, 52, 0, 0, 0.22),
     # トウカ画面はミナリが主役。画面の4割強を占める。
-    # この背丈がトウカ画面の遠近の基準になっていて、地平線も他のキャラの
-    # 立ち位置もここから逆算される。変えるときは drawTouka の前提も変わる
-    ("minariFrontA", "characters/minari_front_run_A.png",  126, 140, 15),
-    ("minariFrontB", "characters/minari_front_run_B.png",  126, 140, 15),
-    ("minariDodgeL", "characters/minari_dodge_left.png",   140, 130, 15),
-    ("minariDodgeR", "characters/minari_dodge_right.png",  140, 130, 15),
-    # 下水は横向き。立ち30px・伏せ16pxの当たり判定に合わせる
-    ("minariSideA",  "characters/minari_side_run_A.png",   26, 30, 13),
-    ("minariSideB",  "characters/minari_side_run_B.png",   26, 30, 13),
-    ("minariCrouch", "characters/minari_crouch.png",       30, 16, 11),
-    # 落下も見せ場。他に描くものが少ないので大きく
-    ("minariFallA",  "characters/minari_fall_A.png",       32, 34, 13),
-    ("minariFallB",  "characters/minari_fall_B.png",       32, 34, 13),
-    ("minariClimbA", "characters/minari_ladder_climb_A.png", 20, 26, 11),
-    ("minariClimbB", "characters/minari_ladder_climb_B.png", 20, 26, 11),
-    # ── トウカと部下 ────────────────────────────────────────
-    # 大きさは奥行きから逆算して決めた（背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05）。
-    # 同じ奥行きに立つので、並べても不自然にならない
-    ("toukaA",       "characters/touka_approach_A.png",       54, 74, 13),
-    ("toukaB",       "characters/touka_approach_B.png",       54, 74, 13),
-    ("lampReady",    "characters/amaru_net_ready.png",     44, 58, 11),
-    ("lampThrow",    "characters/amaru_net_throw.png",     54, 58, 11),
-    # 網は奥から手前へ来る。大きさの段を4つ持たせて、近づくのを見せる
-    ("netFar",       "characters/amaru_cast_net.png",      14, 11, 4, 3),
-    ("netMid",       "characters/amaru_cast_net_wide.png", 30, 28, 4, 2),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 56, 52, 5, 1),
-    ("netHit",       "characters/amaru_cast_net_wide.png", 96, 90, 6, 1),
-    # ── 路地の通行人 ────────────────────────────────────────
-    ("man",          "characters/npc_boar_man_walk_front.png",  15, 22, 9),
-    ("woman",        "characters/npc_fox_woman_cross.png",      16, 20, 9),
-    ("kid",          "characters/npc_tanuki_kid_run_front.png", 13, 17, 9),
-    # ── 拾うもの ────────────────────────────────────────────
-    ("cheese",       "items/cheese.png",    11, 10, 5),
-    ("onigiri",      "items/onigiri.png",   10,  9, 5),
-    ("apple",        "items/apple.png",      9,  9, 4),
-    ("banana",       "items/banana.png",    11,  8, 4),
-    ("can",          "items/empty_can.png", 11,  7, 5),
+    # この背丈がトウカ画面の遠近の基準で、地平線も他のキャラの立ち位置も
+    # ここから逆算される。変えるときは drawTouka の前提も変わる
+    ("minariFrontA", "characters/minari_front_run_A.png",  252, 280, 0, 0, 0.22),
+    ("minariFrontB", "characters/minari_front_run_B.png",  252, 280, 0, 0, 0.22),
+    ("minariDodgeL", "characters/minari_dodge_left.png",   280, 260, 0, 0, 0.22),
+    ("minariDodgeR", "characters/minari_dodge_right.png",  280, 260, 0, 0, 0.22),
+    # 下水は横向き。立ち60px・伏せ32pxの当たり判定に合わせる
+    ("minariSideA",  "characters/minari_side_run_A.png",   52, 60, 0, 0, 0.22),
+    ("minariSideB",  "characters/minari_side_run_B.png",   52, 60, 0, 0, 0.22),
+    ("minariCrouch", "characters/minari_crouch.png",       60, 32, 0, 0, 0.22),
+    ("minariFallA",  "characters/minari_fall_A.png",       64, 68, 0, 0, 0.22),
+    ("minariFallB",  "characters/minari_fall_B.png",       64, 68, 0, 0, 0.22),
+    ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22),
+    ("minariClimbB", "characters/minari_ladder_climb_B.png", 40, 52, 0, 0, 0.22),
+    # ── トウカと部下。背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05 ──
+    ("toukaA",       "characters/touka_approach_A.png",    108, 148, 0, 0, 0.10),
+    ("toukaB",       "characters/touka_approach_B.png",    108, 148, 0, 0, 0.10),
+    ("lampReady",    "characters/amaru_net_ready.png",      88, 116, 0, 0, 0.10),
+    ("lampThrow",    "characters/amaru_net_throw.png",     108, 116, 0, 0, 0.10),
+    # 網は奥から手前へ。大きさの段で近づくのを見せる
+    ("netFar",       "characters/amaru_cast_net.png",      28, 22, 0, 3, 0.30),
+    ("netMid",       "characters/amaru_cast_net_wide.png", 60, 56, 0, 2, 0.30),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 112, 104, 0, 1, 0.30),
+    # ── 路地の通行人。色を持たないので、見分けはシルエットが担う ──
+    ("man",          "characters/npc_boar_man_walk_front.png",  30, 44, 0, 0, 0.05),
+    ("woman",        "characters/npc_fox_woman_cross.png",      32, 40, 0, 0, 0.05),
+    ("kid",          "characters/npc_tanuki_kid_run_front.png", 26, 34, 0, 0, 0.05),
+    # ── 拾うもの。桃の外の色（金）で塗るので、形だけあればいい ──
+    ("cheese",       "items/cheese.png",    22, 20, 0, 0, 0.5),
+    ("onigiri",      "items/onigiri.png",   20, 18, 0, 0, 0.5),
+    ("apple",        "items/apple.png",     18, 18, 0, 0, 0.5),
+    ("banana",       "items/banana.png",    22, 16, 0, 0, 0.5),
+    ("can",          "items/empty_can.png", 22, 14, 0, 0, 0.5),
 ]
 
 CHARS = "123456789abcdef"
@@ -147,25 +141,24 @@ def main_bbox(im):
             max(b[2] for b in keep), max(b[3] for b in keep))
 
 
-def to_lcd(rgb):
-    """液晶の地へ少しだけ寄せる。元の色味は残したまま、浮きだけを取る"""
-    return tuple(round(c*(1-LCD_MIX) + l*LCD_MIX) for c, l in zip(rgb, LCD))
+def luma(rgb):
+    return (rgb[0]*0.30 + rgb[1]*0.59 + rgb[2]*0.11)/255
 
 
-def lift(rgb):
-    """地に溶ける色を、地から引き離す。
+def to_ramp(v, lo, hi, boost=0.0):
+    """明るさを段へ落とす。
 
-    輪郭線を足さずに輪郭を出すための処理。明るさだけを落とすと灰色になるので、
-    地の方向から遠ざける形で暗くする（色味は保つ）。
+    元絵は淡い色ばかりで、素の明るさで割り当てると全部が同じ段に寄る
+    （実際、最初は2段しか使われなかった）。**その絵の中での明暗の幅**を
+    0..1 へ伸ばしてから割り当てる。こうすると、どの絵も5段を使い切る。
     """
-    d = sum(abs(c-l) for c, l in zip(rgb, LCD))
-    if d >= MIN_GAP:
-        return rgb
-    k = 1 - (MIN_GAP-d)/MIN_GAP*0.30       # 最大で3割暗くする
-    return tuple(max(0, min(255, round(c*k))) for c in rgb)
+    t = 0.5 if hi - lo < 1e-6 else (v - lo)/(hi - lo)
+    t = min(1.0, max(0.0, t)) ** GAMMA
+    t = min(1.0, t + boost)
+    return RAMP[min(len(RAMP)-1, max(0, int(t*len(RAMP)*0.999)))]
 
 
-def build(name, path, W, H, ncol, bold=0):
+def build(name, path, W, H, ncol, bold=0, boost=0.0):
     im = Image.open(os.path.join(IMG, path)).convert("RGBA")
     im = strip_baked_bg(im)
     bb = main_bbox(im)
@@ -198,7 +191,7 @@ def build(name, path, W, H, ncol, bold=0):
             px[x, y] = (r, g, b, 255) if a >= ALPHA_TH else (0, 0, 0, 0)
 
     # 不透明な部分だけを色数削減にかける
-    opaque = Image.new("RGB", (W, H), LCD)
+    opaque = Image.new("RGB", (W, H), (0, 0, 0))
     mask = Image.new("L", (W, H), 0)
     for y in range(H):
         for x in range(W):
@@ -206,7 +199,14 @@ def build(name, path, W, H, ncol, bold=0):
             if a:
                 opaque.putpixel((x, y), (r, g, b))
                 mask.putpixel((x, y), 255)
-    q = opaque.quantize(colors=ncol, method=Image.MEDIANCUT, dither=Image.NONE).convert("RGB")
+    q = opaque
+    # その絵の中での明暗の幅を測る。段の割り当てはこれを基準にする
+    lo, hi = 1.0, 0.0
+    for y in range(H):
+        for x in range(W):
+            if mask.getpixel((x, y)):
+                v = luma(q.getpixel((x, y)))
+                lo = min(lo, v); hi = max(hi, v)
 
     # 浮いた1ドットを消す。縮小の過程でどうしても、周りと繋がっていない点が
     # 残る。手で置いたドット絵にはこれが無いので、あるだけで粗く見える
@@ -234,14 +234,10 @@ def build(name, path, W, H, ncol, bold=0):
             if not mask.getpixel((x, y)):
                 line.append(".")
                 continue
-            col = lift(to_lcd(q.getpixel((x, y))))
-            key = "#%02x%02x%02x" % col
+            key = to_ramp(luma(q.getpixel((x, y))), lo, hi, boost)
             if key not in pal:
-                if len(order) >= len(CHARS):
-                    key = order[0]                       # 念のための保険
-                else:
-                    pal[key] = CHARS[len(order)]
-                    order.append(key)
+                pal[key] = CHARS[len(order)]
+                order.append(key)
             line.append(pal[key])
         rows.append("".join(line))
     return {"name": name, "pal": {pal[k]: k for k in order}, "px": rows}
