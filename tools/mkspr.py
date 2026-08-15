@@ -43,6 +43,11 @@ SPRITES = [
     ("minariFrontB", "characters/minari_front_run_B.png",  252, 280, 0, 0, 0.22),
     ("minariDodgeL", "characters/minari_dodge_left.png",   280, 260, 0, 0, 0.22),
     ("minariDodgeR", "characters/minari_dodge_right.png",  280, 260, 0, 0, 0.22),
+    # 説明の一枚に載せる小さい版。本編の絵は大きすぎて収まらない
+    ("frontMiniA",   "characters/minari_front_run_A.png",   76, 84, 0, 0, 0.22),
+    ("frontMiniB",   "characters/minari_front_run_B.png",   76, 84, 0, 0, 0.22),
+    ("dodgeLmini",   "characters/minari_dodge_left.png",    84, 78, 0, 0, 0.22),
+    ("dodgeRmini",   "characters/minari_dodge_right.png",   84, 78, 0, 0, 0.22),
     # 下水は横向き。立ち60px・伏せ32pxの当たり判定に合わせる
     ("minariSideA",  "characters/minari_side_run_A.png",   52, 60, 0, 0, 0.22),
     ("minariSideB",  "characters/minari_side_run_B.png",   52, 60, 0, 0, 0.22),
