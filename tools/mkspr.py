@@ -39,29 +39,29 @@ SPRITES = [
     # トウカ画面はミナリが主役。画面の4割強を占める。
     # この背丈がトウカ画面の遠近の基準で、地平線も他のキャラの立ち位置も
     # ここから逆算される。変えるときは drawTouka の前提も変わる
-    ("minariFrontA", "characters/minari_front_run_A.png",  252, 280, 0, 0, 0.22),
-    ("minariFrontB", "characters/minari_front_run_B.png",  252, 280, 0, 0, 0.22),
-    ("minariDodgeL", "characters/minari_dodge_left.png",   280, 260, 0, 0, 0.22),
-    ("minariDodgeR", "characters/minari_dodge_right.png",  280, 260, 0, 0, 0.22),
+    ("minariFrontA", "characters/minari_front_run_A2.png",  252, 280, 0, 0, 0.22),
+    ("minariFrontB", "characters/minari_front_run_B2.png",  252, 280, 0, 0, 0.22),
+    ("minariDodgeL", "characters/minari_dodge_left2.png",   280, 260, 0, 0, 0.22),
+    ("minariDodgeR", "characters/minari_dodge_right2.png",  280, 260, 0, 0, 0.22),
     # 説明の一枚に載せる小さい版。本編の絵は大きすぎて収まらない
-    ("frontMiniA",   "characters/minari_front_run_A.png",   76, 84, 0, 0, 0.22),
-    ("frontMiniB",   "characters/minari_front_run_B.png",   76, 84, 0, 0, 0.22),
-    ("dodgeLmini",   "characters/minari_dodge_left.png",    84, 78, 0, 0, 0.22),
-    ("dodgeRmini",   "characters/minari_dodge_right.png",   84, 78, 0, 0, 0.22),
+    ("frontMiniA",   "characters/minari_front_run_A2.png",   76, 84, 0, 0, 0.22),
+    ("frontMiniB",   "characters/minari_front_run_B2.png",   76, 84, 0, 0, 0.22),
+    ("dodgeLmini",   "characters/minari_dodge_left2.png",    84, 78, 0, 0, 0.22),
+    ("dodgeRmini",   "characters/minari_dodge_right2.png",   84, 78, 0, 0, 0.22),
     # 下水は横向き。立ち60px・伏せ32pxの当たり判定に合わせる
-    ("minariSideA",  "characters/minari_side_run_A.png",   52, 60, 0, 0, 0.22),
-    ("minariSideB",  "characters/minari_side_run_B.png",   52, 60, 0, 0, 0.22),
-    ("minariCrouch", "characters/minari_crouch.png",       60, 32, 0, 0, 0.42),
+    ("minariSideA",  "characters/minari_side_run_A2.png",   52, 60, 0, 0, 0.22),
+    ("minariSideB",  "characters/minari_side_run_B2.png",   52, 60, 0, 0, 0.22),
+    ("minariCrouch", "characters/minari_crouch2.png",       60, 32, 0, 0, 0.42),
     ("minariFallA",  "characters/minari_fall_A.png",       64, 68, 0, 0, 0.22),
     ("minariFallB",  "characters/minari_fall_B.png",       64, 68, 0, 0, 0.22),
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22),
     ("minariClimbB", "characters/minari_ladder_climb_B.png", 40, 52, 0, 0, 0.22),
     # ── トウカと部下。背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05 ──
     # 4枚で1周する（A→A′→B→B′）。2枚だと動きが硬い
-    ("toukaA",       "characters/touka_approach_A.png",        108, 148, 0, 0, 0.10),
-    ("toukaA2",      "characters/touka_approach_A_prime.png",  108, 148, 0, 0, 0.10),
-    ("toukaB",       "characters/touka_approach_B.png",        108, 148, 0, 0, 0.10),
-    ("toukaB2",      "characters/touka_approach_B_prime.png",  108, 148, 0, 0, 0.10),
+    ("toukaA",       "characters/touka_approach_A2.png",        108, 148, 0, 0, 0.10),
+    ("toukaA2",      "characters/touka_approach_A_prime2.png",  108, 148, 0, 0, 0.10),
+    ("toukaB",       "characters/touka_approach_B2.png",        108, 148, 0, 0, 0.10),
+    ("toukaB2",      "characters/touka_approach_B_prime2.png",  108, 148, 0, 0, 0.10),
     ("lampReady",    "characters/amaru_net_ready.png",      88, 116, 0, 0, 0.10),
     ("lampThrow",    "characters/amaru_net_throw.png",     108, 116, 0, 0, 0.10),
     # 網は奥から手前へ。大きさの段で近づくのを見せる
