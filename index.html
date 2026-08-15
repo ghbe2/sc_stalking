@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814D";
+const BUILD = "0814E";
 
 /* ============================================================
    CONFIG
@@ -5125,23 +5125,23 @@ function drawBrief(){
   px(16,gy,Math.round(gw*k),4,PAL.d3);
   drawChrome();
 }
+/** 塗りつぶした三角。dir -1=左向き / 1=右向き。
+    線を足すと矢印に見えず、ただの図形が汚れる。三角だけで足りる */
+function tri(cx, cy, w, h, dir, c){
+  const half=(h-1)/2;
+  for(let i=0;i<h;i++){
+    const ww=Math.round(w*(1-Math.abs(i-half)/half));
+    if(ww<=0) continue;
+    px(dir<0 ? cx+w/2-ww : cx-w/2, cy+i, ww, 1, c);
+  }
+}
 /** 説明の図。字より先に目に入るので、形で言い切る */
 function briefFig(kind, cx, y){
   const A=PAL.d4, B2=PAL.d2, C=PAL.d3, G=PAL.gold, W2=PAL.warn;
   if(kind==="tap" || kind==="hold" || kind==="tapx"){
     // ミナリと、その左右の矢印
     blit(SPR.minariBackA, cx, y+50);
-    for(const sg of [-1,1]){
-      const ax=cx+sg*96;
-      for(let i=0;i<22;i++){
-        const w=Math.round((1-i/22)*36);
-        px(ax-sg*18+sg*i*1.6, y+i, 2, 44-i*2, A);
-      }
-    }
-    for(const sg of [-1,1]){
-      const ax=cx+sg*96;
-      for(let i=0;i<22;i++) px(ax+sg*(18-i*1.6)-1, y+i, 2, 2, A);
-    }
+    for(const sg of [-1,1]) tri(cx+sg*96, y+8, 30, 40, sg, A);
   } else if(kind==="cam"){
     // 向いた列から横へ抜ける
     const pw=210, ph=96, x0=Math.round(cx-pw/2);
@@ -5152,8 +5152,8 @@ function briefFig(kind, cx, y){
     const ex=x0+pw/4, ey=y+24;
     ring(ex,ey,16,10,W2,2); blob(ex,ey,6,6,W2);
     blit(SPR.minariBackA, x0+pw*0.75, y+ph-10);
-    for(let i=0;i<5;i++) px(ex-2+i*7, y+ph-34, 5, 3, C);
-    px(ex+34,y+ph-40,3,15,A); px(ex+37,y+ph-37,3,9,A); px(ex+40,y+ph-35,3,5,A);
+    for(let i=0;i<4;i++) px(ex-2+i*8, y+ph-34, 5, 3, C);
+    tri(ex+40, y+ph-40, 12, 16, 1, A);
   } else if(kind==="hole"){
     // 蓋を穴に重ねる。上だけ口を開けて、そこが逃げ道
     const rw=38, rh=17, my=y+24;
