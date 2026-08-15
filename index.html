@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0815C";
+const BUILD = "0816A";
 
 /* ============================================================
    CONFIG
@@ -180,6 +180,10 @@ const CONFIG = {
 
     // 足場に乗れば手に入る高いチーズ。地面からだと大きく溜める必要がある
     cheeseHiY: 80,
+    /* 足場の**下**に置くぶんの高さ。走っているだけで取れて、
+       足場の上を歩いていると取れない、という一本道の高さにする。
+       cheeseY(48) だと跳ばないと届かず、逆に足場からは拾えてしまっていた */
+    platLowY: 12,
 
     // 潜るほどトウカは耳を澄ます。気配の引きが遅くなり、いつかは追いつかれる
     noiseMax: 100, noiseDecayFar: 6.0, noiseDecayNear: 1.8,
@@ -282,6 +286,15 @@ function blit(spr, x, y, flip){
   const rows = spr.px, w = rows[0].length;
   ctx.drawImage(bake(spr)[flip?1:0],
                 Math.round(x - w/2), Math.round(y - rows.length));
+}
+/** 縮めて置く。k は 1/2 や 1/3 だけにする。
+    半端な倍率で間引くと、線の太さが場所によって変わってジャギる */
+function blitK(spr, x, y, k, flip){
+  const rows = spr.px, w = Math.round(rows[0].length*k), h = Math.round(rows.length*k);
+  const sm = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bake(spr)[flip?1:0], Math.round(x - w/2), Math.round(y - h), w, h);
+  ctx.imageSmoothingEnabled = sm;
 }
 /** ドット絵の行の長さが揃っているか。ずれると絵が崩れるので起動時に検査する */
 function validateSprites(){
@@ -3588,7 +3601,7 @@ const U = 2;
   const S = C.sewer;
   mul(S, ["speed","gravity","minJump","maxJump","standH","crouchH","bodyW",
           "batW","batH","batStack","batDrift","batSwapGap","batMinGap",
-          "cheeseW","cheeseH","cheeseY","cheeseHiY",
+          "cheeseW","cheeseH","cheeseY","cheeseHiY","platLowY",
           "ladderDist","ladderW","ladderLo","platH","platW","platThick","ramp"]);
   for(const k in S.batBands) S.batBands[k] = S.batBands[k].map(b => b.map(v => v*U));
   mul(C.climb, ["total","auto","perTap","swarmStart","swarmSpeed","swarmAccel"]);
@@ -3652,6 +3665,14 @@ function validateSewer(){
     bad.push("高いチーズが高い（地面からはどうやっても取れない）");
   if(C.cheeseHiY <= C.cheeseY)
     bad.push("高いチーズが低い（通常のチーズと変わらない）");
+  /* 足場の下の果物。**跳ばずに取れて、足場の上からは取れない**の両方。
+     ここが崩れると「下を走る」という選択が消える */
+  if(C.platLowY + C.cheeseH > C.standH)
+    bad.push("足場下の果物が高い（走っているだけでは届かない）");
+  if(C.platLowY + C.cheeseH + 6 > C.platH)
+    bad.push("足場下の果物が高い（足場の上を歩いていると拾えてしまう）");
+  if(C.platLowY > C.crouchH - 4)
+    bad.push("足場下の果物が高い（伏せて通ると拾えない）");
 
   // 足場の上では伏せても帯を抜けられないこと自体を、ここで明示しておく。
   // だから足場と伏せる隊形は重ねてはいけない（配置側で弾いている）
@@ -3749,7 +3770,7 @@ const S = {
   toukaVisits:0, tkThrown:0, tkQuota:0,   // 何度目か / 投げた本数 / 投げきる本数
   watched:false, spotT:0,       // 見張られている / 捕捉されてからの秒数
   briefKey:"", briefT:0,        // 画面のあいだに挟む説明
-  shake:0, toasts:[], bang:0,
+  shake:0, toasts:[], bang:0, animT:0,
   end:"", best:0, seed:"",
 };
 /* 難易度の時計は「その画面に入ってからの時間」で回す（S.screenT）。
@@ -4043,6 +4064,9 @@ function damage(){
    ============================================================ */
 const laneW=()=>VW/CONFIG.lanes;
 const laneX=lf=>laneW()*(lf+0.5);
+/** 横切る女がいまどの列に居るか。減速も当たり判定もこの1つで決める。
+    画面の外では -1 や 4 を返す。列の番号と一致しないので当たらない */
+const womanLane=e=>Math.floor(e.x/laneW());
 const add=(kind,at,lane,x,vx)=>S.ents.push({kind,at,lane,x,vx,dead:false});
 
 /** 歩いてくる人。時間が経つほど間隔が詰まる */
@@ -4516,10 +4540,11 @@ function fillSewer(){
       // 多すぎたので間引く。3つに2つだけ置く
       if(rnd()<0.36) continue;
       const r=rnd();
-      S.swItems.push({x:S.swCursor+x, hi:false, dead:false,
+      S.swItems.push({x:S.swCursor+x, y:CONFIG.sewer.cheeseY, dead:false,
                       kind: r<0.40?"banana": r<0.75?"apple":"cheese"});
     }
-    for(const x of (p.cheeseHi||[])) S.swItems.push({x:S.swCursor+x, hi:true, dead:false, kind:"cheese"});
+    for(const x of (p.cheeseHi||[]))
+      S.swItems.push({x:S.swCursor+x, y:CONFIG.sewer.cheeseHiY, dead:false, kind:"cheese"});
     S.swCursor += p.len;
   }
   // 梯子は掴みに行かないと掴めないので、隊形と重ならなければよい。
@@ -4551,9 +4576,12 @@ function fillSewer(){
     S.swLadders.push({x:x+C.platW*0.74, dead:false});
     /* 足場のまわりに拾いものを置く。**低いほど点が大きい**。
        上を通れば安全だが小さく、下を走れば危ないが大きい。
-       これで「足場に乗らずに下を行く」に意味が生まれる */
-    S.swItems.push({x:x+C.platW*0.34, hi:true,  dead:false, kind:"banana"});   // 上・小
-    S.swItems.push({x:x+C.platW*0.62, hi:false, dead:false, kind:"cheese"});   // 下・大
+       これで「足場に乗らずに下を行く」に意味が生まれる。
+       下のぶんは platLowY。走り抜けるだけで取れる高さに落としてある。
+       前は cheeseY(=跳ばないと届かない高さ)に置いていて、
+       下を走ると取れず、上を歩くと勝手に取れる、という逆さまになっていた */
+    S.swItems.push({x:x+C.platW*0.34, y:C.cheeseHiY, dead:false, kind:"banana"});  // 上・小
+    S.swItems.push({x:x+C.platW*0.62, y:C.platLowY, dead:false, kind:"cheese"});   // 下・大
     S.swNextLadder = x + C.ladderDist;
   }
 }
@@ -4646,7 +4674,7 @@ function updateSewer(dt){
   for(const it of S.swItems){
     if(it.dead) continue;
     if(Math.abs(it.x-S.swDist) > (C.bodyW+C.cheeseW)/2) continue;
-    const cy = it.hi ? C.cheeseHiY : C.cheeseY;
+    const cy = it.y;
     if(S.swY+h >= cy && S.swY <= cy+C.cheeseH){
       it.dead=true;
       const p2 = CONFIG.score[it.kind||"cheese"];
@@ -4668,7 +4696,11 @@ function updateSewer(dt){
   S.swPlats   = S.swPlats.filter(P=>P.x1 > back);
 }
 function hits(e){
-  if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && Math.abs(e.x-laneX(S.laneF))<CONFIG.hit.cross;
+  /* 横切る女は**列に入った時点で当たり**にする。
+     以前は中心どうしの距離(±15px)で見ていたが、女はミナリと同じ列では
+     linger でほぼ止まる。止まった位置が列の端だと、いつまでも15pxに入らず
+     「同じ列に居るのに当たらない」という逆さまなことが起きていた */
+  if(e.kind==="woman") return Math.abs(e.at-S.dist)<CONFIG.hit.depth && womanLane(e)===S.lane;
   const d = CONFIG.actors[e.kind]?.depth ?? CONFIG.hit.depth;
   return Math.abs(e.at-S.dist)<d && e.lane===S.lane;
 }
@@ -4709,7 +4741,7 @@ function updatePlay(dt){
     if(e.kind==="woman"){
       // ミナリが居る列で速さが変わる。読めるので、避け方を考えられる
       const A2=CONFIG.actors.woman;
-      const here = Math.round(e.x/laneW()-0.5);        // 女がいまいる列
+      const here = womanLane(e);                       // 女がいまいる列
       const ahead = here + (e.vx>0 ? 1 : -1);          // 進む先の列
       const mul = (S.lane===here)  ? A2.linger
                 : (S.lane===ahead) ? A2.hurry : 1;
@@ -4742,8 +4774,17 @@ function updatePlay(dt){
                             && !(e.kind==="woman"&&(e.x<-30||e.x>VW+30)));
 }
 function update(dt){
+  /* 絵の時計。S.t と違って**どの画面でも必ず進む**。
+     コマ送りと点滅だけがこれを見る。
+     タイトルと結果の画面では S.t を止めているので、以前はここが
+     止まったまま＝トウカが固まっていた */
+  S.animT += dt;
   // 終わったら時計を止める。結果の画面で数字が動き続けるのはおかしい
-  if(S.scene==="over"||S.scene==="title") { if(edge.start && S.screenT>0.8){
+  if(S.scene==="over"||S.scene==="title") {
+    /* 揺れはここでも冷ます。捕まった瞬間の揺れを積んだまま抜けるので、
+       減らす場所が無いと結果の画面もタイトルも揺れっぱなしになる */
+    S.shake=Math.max(0,S.shake-dt*8);
+    if(edge.start && S.screenT>0.8){
       S.scene = S.scene==="over" ? "title" : S.scene; S.screenT=0; }
     S.screenT+=dt; if(S.scene==="title"&&edge.start&&S.screenT>0.3) startRun();
     return; }
@@ -5394,10 +5435,24 @@ function figure(cx,by,w,h,c,o){
   px(cx-Math.round(w*0.3),by-h,Math.round(w*0.6),hh,c);
   if(o.skirt) px(cx-hw-2,by-5,w+4,5,c);
 }
+/* コマ送りは S.t ではなく S.animT を見る。S.t はタイトルと結果の画面で
+   止めてあるので、そこだけ絵が固まってしまう */
 /** 2枚を交互に。歩幅の速さは hz で決める */
-const anim = (a,b,hz)=> Math.floor(S.t*hz)%2 ? b : a;
+const anim = (a,b,hz)=> Math.floor(S.animT*hz)%2 ? b : a;
 /** 4枚で1周。A→A′→B→B′ の順に回す */
-const anim4 = (a,a2,b,b2,hz)=> [a,a2,b,b2][Math.floor(S.t*hz)%4];
+const anim4 = (a,a2,b,b2,hz)=> [a,a2,b,b2][Math.floor(S.animT*hz)%4];
+/** 点滅。hz 回/秒で入り切りする */
+const blink = (hz=2)=> Math.floor(S.animT*hz)%2===0;
+/** 大きい「！」。網が来る列の予告。字では小さすぎて読めなかった */
+function bangMark(cx, ty){
+  const w=14, h1=38, gap=9, h2=14;
+  const L=Math.round(cx-w/2);
+  // 地を先に敷く。奥のトウカたちに重なっても輪郭が立つ
+  px(L-3, ty-3, w+6, h1+6, PAL.bg);
+  px(L-3, ty+h1+gap-3, w+6, h2+6, PAL.bg);
+  px(L, ty, w, h1, PAL.warn);
+  px(L, ty+h1+gap, w, h2, PAL.warn);
+}
 
 function drawMinari(cx,by){
   blit(anim(SPR.minariBackA, SPR.minariBackB, 9), cx, by+2);
@@ -5595,10 +5650,12 @@ function drawTouka(){
   {
     // 帯で塞ぐのをやめ、**狙われた列の上にだけ「！」**を出す。
     // 常設の枡は目に入り続けてうるさく、どの列かも読みにくかった
-    const ay=HUD_H+14;
+    /* 字で出すと J28 でも高さ26px しかなく、奥のトウカたちに紛れて読めない。
+       図形で描いて、上端の帯とほぼ同じ高さまで大きくする */
+    const ay=HUD_H+10;
     for(const lane of S.tkPoints){
       if(Math.floor(S.t*10)%2) continue;
-      textC2("!", lx(lane,1), ay, PAL.warn, J28);
+      bangMark(lx(lane,1), ay);
     }
     // 狙われた列は、床まで届く柱でも示す（帯だけだと視線が上へ固定される）
     for(const lane of S.tkPoints){
@@ -5754,7 +5811,7 @@ function drawSewerScene(){
   for(const it of S.swItems){
     const sx=toScreen(it.x);
     if(sx<-14||sx>VW+14) continue;
-    blitTint(SPR[it.kind||"cheese"], sx, gy-(it.hi?C.cheeseHiY:C.cheeseY), PAL.gold);
+    blitTint(SPR[it.kind||"cheese"], sx, gy-it.y, PAL.gold);
   }
   // 脱出の梯子。掴みに行かないと掴めないので、通り道は塞がない
   for(const L of S.swLadders){
@@ -5916,8 +5973,14 @@ function drawChrome(){
   if(st) textC(st, fy+9, S.spotT>0?PAL.warn:PAL.d2, 1, F8);
 }
 /** 走査線と四隅の括弧。地にだけ敷く（被写体の上に重ねると読めなくなる） */
+/* 監視モニタの地。走査線に**縦の目盛り**を足して、格子にする。
+   どの画面もこれを通すので、タイトルから結果まで同じ地の上に乗る。
+   色は PAL.scan（地との差が5階調ぶんしかない）に留める。
+   前に消したのはもっと濃い格子で、絵が読めなくなっていた */
 function drawScanlines(){
-  for(let y=HUD_H;y<VH-FOOT_H;y+=3) px(0,y,VW,1,PAL.scan);
+  const T=HUD_H, B=VH-FOOT_H;
+  for(let y=T;y<B;y+=3) px(0,y,VW,1,PAL.scan);
+  for(let x=0;x<VW;x+=25) px(x,T,1,B-T,PAL.scan);
 }
 function drawBrackets(){
   const T=HUD_H+4, B=VH-FOOT_H-6, L=4, R=VW-6;
@@ -5940,18 +6003,57 @@ function drawHUD(){
   drawBrackets();
   drawChrome();
 }
+/** 塗りつぶした楕円。サーチライトの光だまり用 */
+function ellF(cx,cy,rw,rh,c){
+  for(let dy=-rh;dy<=rh;dy++){
+    const w=Math.round(rw*Math.sqrt(Math.max(0,1-(dy/rh)*(dy/rh))));
+    if(w>0) px(Math.round(cx-w), Math.round(cy+dy), w*2, 1, c);
+  }
+}
+/** 上から降りてくる光。追われていることを、絵ではなく光で言う。
+    地より**明るく**する。暗くすると影に見えて、逆の意味になる */
+function searchlight(cx, by, top){
+  const sx=Math.round(lerp(VW*0.5, cx, 0.35)), sy=top;
+  for(let y=sy;y<by;y+=1){
+    const t=(y-sy)/(by-sy);
+    const w=Math.round(16+92*t*t), x=Math.round(lerp(sx,cx,t*t));
+    // 芯は明るく、外へ行くほど暗く。1行おきに芯を抜いて走査線の粒を残す
+    px(Math.round(x-w/2), y, w, 1, PAL.off);
+    if(y%2===0) px(Math.round(x-w*0.28), y, Math.round(w*0.56), 1, PAL.d1);
+  }
+  ellF(cx, by, 62, 17, PAL.d1);
+  ellF(cx, by, 40, 11, PAL.d2);
+}
 function drawTitle(){
   px(0,0,VW,VH,PAL.bg);
   drawScanlines();
-  // 追う者と逃げる者を1枚に。奥にトウカ、手前にミナリ
-  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 3), VW*0.72, VH*0.52);
-  blit(anim(SPR.minariFrontA, SPR.minariFrontB, 6), VW*0.42, VH*0.88);
+
+  /* 追う者と逃げる者。左から右へ流して、端まで行ったら戻す。
+     切り替わるのは両方とも画面の外なので、飛んだようには見えない。
+     トウカフェーズより**ゆっくり**にして、動いていることだけ伝える */
+  const per=4.6, ph=(S.animT%per)/per;
+  const sweep=p=>{ const q=((p%1)+1)%1; return Math.round(-60 + q*(VW+120)); };
+  const mx=sweep(ph), tx=sweep(ph-0.15);       // トウカは少し後ろ
+  const bob=(p,hz)=>Math.round(Math.sin(p*per*hz*Math.PI*2)*2);
+
+  /* ミナリは半分に縮める。原寸だと 252×280 あって画面を埋めてしまい、
+     追う側のトウカ(108×148)より大きく見えてしまう。
+     半分にするとトウカのほうが背が高くなり、追われている絵になる */
+  // 足元の光と「にげる！」がぶつからない高さ
+  const mby=Math.round(VH*0.82), tby=Math.round(VH*0.60);
+  searchlight(mx, mby, HUD_H+64);
+  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 4), tx, tby+bob(ph,2));
+  blitK(anim(SPR.minariFrontA, SPR.minariFrontB, 7), mx, mby+bob(ph,3.5), 0.5);
 
   px(0, HUD_H+14, VW, 46, PAL.warn);
   textC("しゅがけストーキング", HUD_H+23, PAL.bg, 1, J28);
   textC("SHE IS ALWAYS WATCHING", HUD_H+68, PAL.d3, 1, F12);
   textC("RUN, MINARI, RUN", HUD_H+90, PAL.d2, 1, F8);
-  if(Math.floor(S.t*2)%2===0) textC("TAP TO RUN", VH-FOOT_H-34, PAL.d4, 1, F12);
+  if(blink(2)){
+    const w=tw("にげる！",1,J28);
+    px(Math.round((VW-w)/2)-14, VH-FOOT_H-52, w+28, 46, PAL.bg);
+    textC("にげる！", VH-FOOT_H-44, PAL.d5, 1, J28);
+  }
   drawChrome();
 }
 /** 画面のあいだの一枚 */
@@ -6177,7 +6279,7 @@ function drawOver(){
     textR(String(v), Math.round(VW*0.84), y, PAL.d4, 1, F12);
     y += 26;
   });
-  if(Math.floor(S.t*2)%2===0) textC("TAP", VH-FOOT_H-40, PAL.d3, 1, F12);
+  if(blink(2)) textC("TAP", VH-FOOT_H-40, PAL.d3, 1, F12);
   drawChrome();
 }
 function render(){
