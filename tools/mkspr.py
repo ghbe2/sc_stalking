@@ -46,7 +46,7 @@ SPRITES = [
     # 下水は横向き。立ち60px・伏せ32pxの当たり判定に合わせる
     ("minariSideA",  "characters/minari_side_run_A.png",   52, 60, 0, 0, 0.22),
     ("minariSideB",  "characters/minari_side_run_B.png",   52, 60, 0, 0, 0.22),
-    ("minariCrouch", "characters/minari_crouch.png",       60, 32, 0, 0, 0.22),
+    ("minariCrouch", "characters/minari_crouch.png",       60, 32, 0, 0, 0.42),
     ("minariFallA",  "characters/minari_fall_A.png",       64, 68, 0, 0, 0.22),
     ("minariFallB",  "characters/minari_fall_B.png",       64, 68, 0, 0, 0.22),
     ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22),
