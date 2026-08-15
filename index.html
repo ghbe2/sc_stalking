@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0816A";
+const BUILD = "0816B";
 
 /* ============================================================
    CONFIG
@@ -6028,22 +6028,21 @@ function drawTitle(){
   px(0,0,VW,VH,PAL.bg);
   drawScanlines();
 
-  /* 追う者と逃げる者。左から右へ流して、端まで行ったら戻す。
-     切り替わるのは両方とも画面の外なので、飛んだようには見えない。
-     トウカフェーズより**ゆっくり**にして、動いていることだけ伝える */
-  const per=4.6, ph=(S.animT%per)/per;
-  const sweep=p=>{ const q=((p%1)+1)%1; return Math.round(-60 + q*(VW+120)); };
-  const mx=sweep(ph), tx=sweep(ph-0.15);       // トウカは少し後ろ
-  const bob=(p,hz)=>Math.round(Math.sin(p*per*hz*Math.PI*2)*2);
+  /* 追う者と逃げる者。**その場で走らせる**。
+     横へ流すと、逃げているというより画面を横断しているだけに見えた。
+     位置は動かさず、コマ送りと上下の揺れだけで走っていることを伝える。
+     トウカフェーズより**ゆっくり**にして、動いていることだけ分かればいい */
+  const bob=hz=>Math.round(Math.sin(S.animT*hz*Math.PI*2)*2);
 
   /* ミナリは半分に縮める。原寸だと 252×280 あって画面を埋めてしまい、
      追う側のトウカ(108×148)より大きく見えてしまう。
      半分にするとトウカのほうが背が高くなり、追われている絵になる */
   // 足元の光と「にげる！」がぶつからない高さ
+  const mx=Math.round(VW*0.56), tx=Math.round(VW*0.30);
   const mby=Math.round(VH*0.82), tby=Math.round(VH*0.60);
   searchlight(mx, mby, HUD_H+64);
-  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 4), tx, tby+bob(ph,2));
-  blitK(anim(SPR.minariFrontA, SPR.minariFrontB, 7), mx, mby+bob(ph,3.5), 0.5);
+  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 4), tx, tby+bob(2));
+  blitK(anim(SPR.minariFrontA, SPR.minariFrontB, 7), mx, mby+bob(3.5), 0.5);
 
   px(0, HUD_H+14, VW, 46, PAL.warn);
   textC("しゅがけストーキング", HUD_H+23, PAL.bg, 1, J28);
