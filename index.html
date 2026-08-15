@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814N";
+const BUILD = "0814O";
 
 /* ============================================================
    CONFIG
@@ -4951,21 +4951,27 @@ function drawSewerScene(){
     if(toScreen(P.x0)>-2) px(x0,ty,1,C.platThick+3,PAL.ink);   // 手前の端
     if(toScreen(P.x1)<VW+2) px(x1-1,ty,1,C.platThick+3,PAL.ink);
   }
-  // 水たまり。床がくぼんで水が溜まっている。縁を濃く、中を明るく、さざ波を流す
+  /* 水たまり。以前は床の色を薄く抜いただけで、何なのか分からなかった。
+     **床が落ちくぼんで、そこに水が溜まっている**と読めるようにする。
+     縁を濃く、水面を明るく、光の筋を横に走らせる */
   for(const q of S.swPuddles){
     const x0=Math.max(0,toScreen(q.x0)), x1=Math.min(VW,toScreen(q.x1));
     if(x1<=0||x0>=VW) continue;
-    const w=Math.max(0,x1-x0), D=5;
-    px(x0,gy,w,D,PAL.bg);                                   // くぼみ（床を抜く）
-    px(x0,gy+1,w,D-2,PAL.aqua);                              // 水面
-    px(x0,gy,w,1,PAL.ink); px(x0,gy+D-1,w,1,PAL.ink);       // 上下の縁
-    if(toScreen(q.x0)>=0) px(x0,gy,1,D,PAL.ink);
-    if(toScreen(q.x1)<=VW) px(x1-1,gy,1,D,PAL.ink);
-    for(let i=0;i<Math.floor(w/9);i++){                      // さざ波
-      const o=Math.round(Math.sin(i*1.7+S.t*4)*1.5);
-      px(x0+4+i*9+o, gy+2, 4, 1, PAL.bg);
+    const w=Math.max(0,x1-x0), D=14;
+    px(x0, gy-2, w, 2, PAL.bg);                       // 床を抜く
+    px(x0, gy,   w, D, PAL.bg);                       // くぼみの闇
+    px(x0, gy+3, w, D-6, PAL.d2);                     // 水面
+    px(x0, gy+2, w, 1, PAL.d4);                       // 手前の縁で光る
+    for(let i=0;i<Math.floor(w/22);i++){              // 光の筋
+      const o=Math.round(Math.sin(i*1.7+S.t*3)*3);
+      px(x0+8+i*22+o, gy+5, 10, 1, PAL.d4);
     }
-    if(q.wet) ring(x0+w/2, gy+2, w*0.45, 3, PAL.aqua);       // 踏んだあとの波紋
+    if(toScreen(q.x0)>=0) px(x0, gy-2, 2, D+2, PAL.d1);   // 落ち際
+    if(toScreen(q.x1)<=VW) px(x1-2, gy-2, 2, D+2, PAL.d1);
+    if(q.wet){                                        // 踏んだあとの波紋
+      ring(x0+w/2, gy+5, w*0.42, 4, PAL.d4);
+      ring(x0+w/2, gy+5, w*0.24, 2, PAL.d3);
+    }
   }
   // チーズ
   for(const it of S.swItems){
@@ -5004,10 +5010,7 @@ function drawSewerScene(){
     for(const [lo,hi] of bands){
       const top=Math.max(HUD_H, gy-hi), bot=gy-lo;
       if(kind==="high"){
-        // 天井からの吊り。細く、目立たせない
-        px(sx-2, top, 4, Math.max(0, bot-top-96), PAL.d1);
-        px(sx-18, top, 36, 4, PAL.d1);
-        // 蝙蝠はここに居る。帯の底から上へ3段だけ積む
+        // 蝙蝠は帯の底に居る。吊り線は引かない（何なのか分からない線になる）
         const flap=Math.floor(S.t*8)%2;
         for(let r=0;r<3;r++){
           const n = r===0 ? 3 : r===1 ? 2 : 1;
@@ -5027,21 +5030,22 @@ function drawSewerScene(){
         // 蛇。伸びた形と縮んだ形の2枚だけ。尺取虫のように交互に出す
         const h=bot-top, y0=bot-12;
         const A2=Math.floor(S.t*7)%2===0;
+        // 向かってくるので、頭は**左**。右へ向けると後ずさりして見える
         if(A2){
           // 伸びた形
-          px(sx-34, y0, 56, 11, PAL.d3);
-          px(sx+20, y0-3, 18, 14, PAL.d4);                        // 頭
-          px(sx+31, y0+1, 5, 3, PAL.warn);                        // 目
-          px(sx+36, y0+6, 10, 3, PAL.warn);                       // 舌
+          px(sx-22, y0, 56, 11, PAL.d3);
+          px(sx-38, y0-3, 18, 14, PAL.d4);                        // 頭
+          px(sx-34, y0+1, 5, 3, PAL.warn);                        // 目
+          px(sx-46, y0+6, 10, 3, PAL.warn);                       // 舌
         } else {
           // 縮んだ形。背を持ち上げる
-          px(sx-30, y0, 22, 11, PAL.d3);
-          px(sx-14, y0-12, 26, 12, PAL.d3);                       // 山
-          px(sx+8,  y0, 16, 11, PAL.d3);
-          px(sx+20, y0-2, 18, 13, PAL.d4);
-          px(sx+31, y0+2, 5, 3, PAL.warn);
+          px(sx+8,  y0, 22, 11, PAL.d3);
+          px(sx-12, y0-12, 26, 12, PAL.d3);                       // 山
+          px(sx-24, y0, 16, 11, PAL.d3);
+          px(sx-38, y0-2, 18, 13, PAL.d4);
+          px(sx-34, y0+2, 5, 3, PAL.warn);
         }
-        px(sx-34, bot-2, 76, 2, PAL.d1);                          // 影
+        px(sx-42, bot-2, 76, 2, PAL.d1);                          // 影
       }
     }
   };
