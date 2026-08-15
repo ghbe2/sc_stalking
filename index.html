@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814I";
+const BUILD = "0814J";
 
 /* ============================================================
    CONFIG
@@ -133,7 +133,7 @@ const CONFIG = {
   // 捕まってトウカへ行くとこの画面を通らない＝安全な道を選んだ者だけが回復する
   // 落下中はレーンを使わず、押している方向へ緩慢に流れる。1個も取れないこともある
   fall: {
-    duration: 5.2, scroll: 150, gap: 175, y: 0.34,
+    duration: 8.5, scroll: 150, gap: 175, y: 0.34,   // 短すぎたので長くした
     accel: 420, maxVX: 110, drag: 3.5, catchR: 13,
   },
 
@@ -3232,6 +3232,11 @@ const SFX = (()=>{
     land:    ()=> noise(0.06, {vol:0.30, lp:1400}),
     splash:  ()=>{ noise(0.20,{vol:0.45,hp:900}); tone(500,240,0.14,{vol:0.25,type:"triangle"}); },
     dive:    ()=>{ tone(700,150,0.35,{vol:0.55,type:"triangle"}); noise(0.25,{vol:0.25,lp:800,delay:0.05}); },
+    // 落ちはじめ。長く下がる音で「ここから落ちる」と分かる
+    fall:    ()=>{ tone(900,120,1.10,{vol:0.40,type:"triangle"});
+                   noise(0.9,{vol:0.22,lp:1200,delay:0.05}); },
+    // 着地。下水へ出た合図
+    thud:    ()=>{ noise(0.22,{vol:0.45,lp:600}); tone(160,70,0.26,{vol:0.4,type:"sawtooth"}); },
     warn:    ()=> tone(1050,1050,0.05,{vol:0.40}),
     throwNet:()=> noise(0.14,{vol:0.35,hp:2200}),
     miss:    ()=> tone(220,220,0.06,{vol:0.30,type:"triangle"}),
@@ -3574,12 +3579,17 @@ function startRun(){
    落下 — マンホールに飛び込んだあと。おにぎりを拾ってハートを取り戻す
    ------------------------------------------------------------ */
 function gotoFall(){
-  S.scene="falling"; S.screenT=0; S.fallT=0; S.fallDist=0; S.healed=0;
+  S.scene="falling"; S.screenT=0; S.fallT=0; se("fall"); S.fallDist=0; S.healed=0;
   S.fallX=VW/2; S.fallVX=0; S.fallItems=[];
   const total=CONFIG.fall.duration*CONFIG.fall.scroll;
-  const M=18;
-  for(let at=CONFIG.fall.gap; at<total-40; at+=CONFIG.fall.gap){
-    S.fallItems.push({ at, x: M+rnd()*(VW-M*2), dead:false });   // 位置は完全にランダム
+  const M=36;
+  /* 落ちてくるものを混ぜる。全部おにぎりだと、拾えば必ず回復できてしまう。
+     おにぎりは4割だけにして、残りは点になる果物。
+     「どれを取りに行くか」が判断になる */
+  for(let at=CONFIG.fall.gap; at<total-80; at+=CONFIG.fall.gap){
+    const r=rnd();
+    const kind = r<0.40 ? "onigiri" : r<0.72 ? "apple" : "banana";
+    S.fallItems.push({ at, x: M+rnd()*(VW-M*2), kind, dead:false });
   }
 }
 /** 落下はレーンを使わない。押している方向へ緩慢に流れるだけ */
@@ -3605,11 +3615,15 @@ function updateFall(dt){
     if(it.dead) continue;
     if(Math.abs(it.at-S.fallDist)<CONFIG.hit.depth && Math.abs(it.x-S.fallX)<F.catchR){
       it.dead=true;
-      if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); se("heal"); }
-      else { S.score+=CONFIG.score.rice; toast("+"+CONFIG.score.rice); se("pick"); }
+      if(it.kind==="onigiri" && S.hearts<CONFIG.hearts){
+        S.hearts++; S.healed++; toast("ハート回復"); se("heal");
+      } else {
+        const p = it.kind==="banana" ? CONFIG.score.banana : CONFIG.score.apple;
+        S.score+=p; toast("+"+p); se("pick");
+      }
     }
   }
-  if(S.fallT>=F.duration) enterSewer();
+  if(S.fallT>=F.duration){ se("thud"); return enterSewer(); }
 }
 
 /* ------------------------------------------------------------
@@ -4654,7 +4668,10 @@ function drawAlley(){
   px(0,HUD_H,2,VH-HUD_H,PAL.dim); px(VW-2,HUD_H,2,VH-HUD_H,PAL.dim);
 
   drawWatches();
-  for(const e of S.ents) if(!e.dead) drawActor(e);
+  // マンホールは地面に空いた穴。人はその上を歩く。
+  // 一緒くたに描くと、人が穴の下をくぐって見える
+  for(const e of S.ents) if(!e.dead && e.kind==="manhole") drawActor(e);
+  for(const e of S.ents) if(!e.dead && e.kind!=="manhole") drawActor(e);
   if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinari(laneX(S.laneF),playerY);
   // 見られている時間。下水の気配ゲージと同じ見た目
   drawStalkBar(HUD_H+4, S.seen/CONFIG.watch.catch, "SHE SEES YOU");
@@ -4682,7 +4699,9 @@ function drawFall(){
     if(it.dead) continue;
     const y = fy + (it.at - S.fallDist);
     if(y<HUD_H-16||y>VH+16) continue;
-    blit(SPR.onigiri, it.x, y+5);
+    // 回復のおにぎりだけ形が違う。果物は金一色で「点」だと分かる
+    if(it.kind==="onigiri") blit(SPR.onigiri, it.x, y+10);
+    else blitTint(it.kind==="banana"?SPR.banana:SPR.apple, it.x, y+9, PAL.gold);
   }
   // 落ち始めだけ、マンホールの縁からヤツメウナギが覗いて手を伸ばしてくる。
   // 崖から落ちる者へ差し出される手。掴まれることはない、ただの見送り
@@ -5193,9 +5212,6 @@ function briefFig(kind, cx, y){
     // ミナリと、その左右の矢印。落下だけは落ちている絵にする
     blit(kind==="hold" ? SPR.minariFallA : SPR.minariBackA, cx, y+50);
     for(const sg of [-1,1]) tri(cx+sg*96, y+8, 30, 40, sg, A);
-    // 押しっぱなしは、矢印のうしろに尾を引かせて「押し続ける」を示す
-    if(kind==="hold") for(const sg of [-1,1])
-      for(let i=0;i<3;i++) px(cx+sg*(112+i*12), y+24, 8, 8, PAL.d2);
   } else if(kind==="cam"){
     // 向いた列から横へ抜ける
     const pw=210, ph=96, x0=Math.round(cx-pw/2);
