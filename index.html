@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814P";
+const BUILD = "0814Q";
 
 /* ============================================================
    CONFIG
@@ -107,7 +107,7 @@ const CONFIG = {
     crowdGapFar: 1.45, crowdGapNear: 0.44,   // 人混みの間隔（時間で詰まる）
     womanFar: 4.2, womanNear: 1.8,           // 秒。当たることが無さすぎたので増やす
     watchFar: 6.5, watchNear: 3.0,           // 秒。序盤から常に1列は監視がある（＝常に賭けられる）
-    itemDist: 210,                           // 距離ごと。歩かないので時間で速くならない
+    itemDist: 120,                           // 距離ごと。歩かないので時間で速くならない
     manholeDist: 820,
     grace: 95,                               // 開幕はこのぶん誰も来ない（約1秒）
   },
@@ -3781,9 +3781,14 @@ function fillSewer(){
       const at=S.swCursor+b[0], lead=Math.max(0,(at-S.swDist)/swSpeed());
       S.swBats.push({x: at + drift*lead, kind:b[1], dead:false});
     }
-    for(const q of p.puddles) S.swPuddles.push({x0:S.swCursor+q[0], x1:S.swCursor+q[0]+q[1], wet:false});
-    for(const x of (p.cheese||[])) S.swItems.push({x:S.swCursor+x, hi:false, dead:false});
-    for(const x of (p.cheeseHi||[])) S.swItems.push({x:S.swCursor+x, hi:true, dead:false});
+    for(const q of p.puddles) S.swPuddles.push({x0:S.swCursor+q[0], x1:S.swCursor+q[0]+q[1], wet:false, wetT:0});
+    // 下水にも果物を混ぜる。チーズだけだと拾うものが単調になる
+    for(const x of (p.cheese||[])){
+      const r=rnd();
+      S.swItems.push({x:S.swCursor+x, hi:false, dead:false,
+                      kind: r<0.40?"banana": r<0.75?"apple":"cheese"});
+    }
+    for(const x of (p.cheeseHi||[])) S.swItems.push({x:S.swCursor+x, hi:true, dead:false, kind:"cheese"});
     S.swCursor += p.len;
   }
   // 梯子は掴みに行かないと掴めないので、隊形と重ならなければよい。
@@ -3814,7 +3819,7 @@ function fillSewer(){
     S.swPlats.push({x0:x, x1:x+C.platW, y:C.platH});
     S.swLadders.push({x:x+C.platW*0.74, dead:false});
     // 足場の上には高いチーズも置く。梯子を取らなくても、乗る価値がある
-    S.swItems.push({x:x+C.platW*0.34, hi:true, dead:false});
+    S.swItems.push({x:x+C.platW*0.34, hi:true, dead:false, kind:"cheese"});
     S.swNextLadder = x + C.ladderDist;
   }
 }
@@ -3865,10 +3870,11 @@ function updateSewer(dt){
   S.swHeld = held;
 
   // 水たまり。踏んでもダメージは無いが、水が跳ねてトウカに位置が伝わる
+  for(const q of S.swPuddles) if(q.wetT>0) q.wetT-=dt;
   for(const q of S.swPuddles){
     if(q.wet) continue;
     if(S.swDist>q.x0 && S.swDist<q.x1 && S.swY<=1){
-      q.wet=true;
+      q.wet=true; q.wetT=0.35;
       S.swNoise = Math.min(C.noiseMax, S.swNoise + C.puddleNoise);
       S.shake=Math.max(S.shake,2.4); se("splash"); toast("水を踏んだ");
     }
@@ -3905,7 +3911,9 @@ function updateSewer(dt){
     if(Math.abs(it.x-S.swDist) > (C.bodyW+C.cheeseW)/2) continue;
     const cy = it.hi ? C.cheeseHiY : C.cheeseY;
     if(S.swY+h >= cy && S.swY <= cy+C.cheeseH){
-      it.dead=true; S.score += CONFIG.score.cheese; toast("+"+CONFIG.score.cheese); se("pick");
+      it.dead=true;
+      const p2 = CONFIG.score[it.kind||"cheese"];
+      S.score += p2; toast("+"+p2); se("pick");
     }
   }
   // 梯子は地面からは届かない高さ。段差に乗って、そこから跳んだときだけ手が届く
@@ -4968,16 +4976,18 @@ function drawSewerScene(){
     }
     if(toScreen(q.x0)>=0) px(x0, gy-2, 2, D+2, PAL.d1);   // 落ち際
     if(toScreen(q.x1)<=VW) px(x1-2, gy-2, 2, D+2, PAL.d1);
-    if(q.wet){                                        // 踏んだあとの波紋
-      ring(x0+w/2, gy+5, w*0.42, 4, PAL.d4);
-      ring(x0+w/2, gy+5, w*0.24, 2, PAL.d3);
+    // 踏んだ瞬間だけ波紋。残すと画面端で歪んで見えるので、すぐ消す
+    if(q.wetT>0){
+      const k=q.wetT/0.35;
+      ring(x0+w/2, gy+5, w*0.42*(1.2-k*0.4), 4, PAL.d4);
+      ring(x0+w/2, gy+5, w*0.24*(1.2-k*0.4), 2, PAL.d3);
     }
   }
   // チーズ
   for(const it of S.swItems){
     const sx=toScreen(it.x);
     if(sx<-14||sx>VW+14) continue;
-    blitTint(SPR.cheese, sx, gy-(it.hi?C.cheeseHiY:C.cheeseY), PAL.gold);
+    blitTint(SPR[it.kind||"cheese"], sx, gy-(it.hi?C.cheeseHiY:C.cheeseY), PAL.gold);
   }
   // 脱出の梯子。掴みに行かないと掴めないので、通り道は塞がない
   for(const L of S.swLadders){
@@ -5012,8 +5022,13 @@ function drawSewerScene(){
       if(kind==="high"){
         // 蝙蝠は帯の底に居る。吊り線は引かない（何なのか分からない線になる）
         const flap=Math.floor(S.t*8)%2;
-        for(let r=0;r<3;r++){
-          const n = r===0 ? 3 : r===1 ? 2 : 1;
+        /* 段の数は「跳んでも越えられない」ことが見て分かる高さまで積む。
+           最大ジャンプの頭は地面から約153px。そこまで蝙蝠が居ないと、
+           上を飛べそうに見えてしまう */
+        const need = C.maxJump*C.maxJump/(2*C.gravity) + C.standH;
+        const rows = Math.max(3, Math.ceil((need-lo)/24)+1);
+        for(let r=0;r<rows;r++){
+          const n = (r%2===0) ? 3 : 2;
           // 一番下の段の腹を、塞ぐ帯の下端にぴったり付ける。
           // 少しでも浮かせると「高いところを飛んでいる」に見えてしまう
           const by = bot-7-r*24;
