@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814Q";
+const BUILD = "0814R";
 
 /* ============================================================
    CONFIG
@@ -2899,25 +2899,25 @@ const PATTERNS = [
 const SEWER = [
   // ── 1つずつ覚える ──
   { d:1, len:250, bats:[[140,"high"]], puddles:[[40,26]],       cheese:[210] },
-  { d:1, len:250, bats:[[140,"low"]],  puddles:[[210,26]],      cheese:[] },
-  { d:1, len:260, bats:[],             puddles:[[70,30],[170,30]], cheese:[225] },
+  { d:1, len:250, bats:[[140,"low"]],  puddles:[[210,26]],      cheese:[83,193,210] },
+  { d:1, len:260, bats:[],             puddles:[[70,30],[170,30]], cheese:[220] },
   // ── 組み合わせ ──
-  { d:2, len:330, bats:[[80,"high"],[300,"low"]],  puddles:[[180,28]],           cheese:[] },
+  { d:2, len:330, bats:[[80,"high"],[300,"low"]],  puddles:[[180,28]],           cheese:[99,240,290] },
   { d:2, len:310, bats:[[80,"low"],[215,"high"]],  puddles:[[150,28]],           cheeseHi:[270] },
-  { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32],[30,26]],   cheese:[] },
-  { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30],[260,26]],   cheese:[] },
-  { d:2, len:310, bats:[],                         puddles:[[110,72],[230,30]],  cheese:[245] },
+  { d:2, len:300, bats:[[90,"high"]],              puddles:[[200,32],[30,26]],   cheese:[93,222,260] },
+  { d:2, len:300, bats:[[200,"low"]],              puddles:[[95,30],[260,26]],   cheese:[93,222,260] },
+  { d:2, len:310, bats:[],                         puddles:[[110,72],[230,30]],  cheese:[245,270] },
   // ── 続けて来る ──
-  { d:3, len:480, bats:[[70,"low"],[210,"high"],[420,"low"]],  puddles:[[150,28],[300,28]], cheese:[] },
+  { d:3, len:480, bats:[[70,"low"],[210,"high"],[420,"low"]],  puddles:[[150,28],[300,28]], cheese:[131,327,383] },
   { d:3, len:490, bats:[[70,"high"],[290,"low"],[430,"high"]], puddles:[[180,30]],  cheeseHi:[150] },
-  { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30],[160,28]], cheese:[] },
-  { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78],[330,28]],  cheese:[] },
-  { d:3, len:380, bats:[],  puddles:[[60,28],[130,28],[200,28],[270,28]], cheese:[] },
+  { d:3, len:420, bats:[[90,"low"],[230,"high"]],              puddles:[[330,30],[160,28]], cheese:[118,292,380] },
+  { d:3, len:400, bats:[[240,"high"]],                         puddles:[[90,78],[330,28]],  cheese:[114,280,360] },
+  { d:3, len:380, bats:[],  puddles:[[60,28],[130,28],[200,28],[270,28]], cheese:[110,269,340] },
   // ── 密度を上げる ──
   { d:4, len:620, bats:[[70,"low"],[210,"high"],[430,"low"],[570,"high"]], puddles:[[150,28],[300,28]], cheeseHi:[280] },
   // 伏せっぱなしで抜ける譜面。持ち替えを迫らないぶん、密度で押す
-  { d:4, len:520, bats:[[80,"high"],[260,"high"],[440,"high"]], puddles:[[170,26],[350,26]], cheese:[] },
-  { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74],[380,28]],  cheese:[] },
+  { d:4, len:520, bats:[[80,"high"],[260,"high"],[440,"high"]], puddles:[[170,26],[350,26]], cheese:[139,350,421] },
+  { d:4, len:460, bats:[[90,"high"],[300,"low"]], puddles:[[190,74],[380,28]],  cheese:[127,315,420] },
   { d:4, len:480, bats:[[350,"low"]], puddles:[[60,26],[130,26],[200,26],[266,26]], cheeseHi:[420] },
 ];
 
@@ -3641,7 +3641,17 @@ function gotoClimb(){
   const C=CONFIG.climb;
   S.scene="climb"; S.screenT=0; S.climbY=0; S.climbT=0; S.healed=0;
   S.climbSwarm = C.swarmStart;
-  S.climbItems = C.items.map(h=>({h:h*C.total, who:0}));   // 0=まだ 1=ミナリ 2=群れに食われた
+  /* 拾いものは毎回ちがう。以前は決まった高さにおにぎりが必ず2個あり、
+     連打すれば必ず回復できてしまった。
+     数も高さも中身も振って、**回復できるとは限らない**ようにする。
+     who: 0=まだ 1=ミナリ 2=群れに食われた */
+  S.climbItems = [];
+  const n = 1 + (rnd()<0.55 ? 1 : 0);
+  for(let i=0;i<n;i++){
+    const r = rnd();
+    S.climbItems.push({ h:(0.28 + i*0.30 + rnd()*0.16)*C.total, who:0,
+                        kind: r<0.55 ? "onigiri" : r<0.80 ? "apple" : "banana" });
+  }
 }
 function updateClimb(dt){
   const C=CONFIG.climb;
@@ -3657,8 +3667,12 @@ function updateClimb(dt){
     if(it.who) continue;
     if(S.climbY>=it.h){
       it.who=1;
-      if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); }
-      else { S.score += CONFIG.score.rice; toast("+"+CONFIG.score.rice); }
+      if(it.kind==="onigiri" && S.hearts<CONFIG.hearts){
+        S.hearts++; S.healed++; toast("ハート回復"); se("heal");
+      } else {
+        const p2 = CONFIG.score[it.kind] || CONFIG.score.banana;
+        S.score += p2; toast("+"+p2); se("pick");
+      }
     } else if(S.climbSwarm>=S.climbY){        // 追い抜かれたら、先のおにぎりは食われる
       it.who=2; toast("食われた");
     }
@@ -4913,7 +4927,8 @@ function drawClimb(){
     if(it.who) continue;
     const y=toY(it.h), x=lx+13;
     if(y<HUD_H-12||y>VH+12) continue;
-    blit(SPR.onigiri, x, y+5);
+    if(it.kind==="onigiri") blit(SPR.onigiri, x, y+9);
+    else blitTint(SPR[it.kind], x, y+9, PAL.gold);
   }
   // ミナリ
   // 連打が速いほど、手を出す動きも速く見える
