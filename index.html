@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814S";
+const BUILD = "0814T";
 
 /* ============================================================
    CONFIG
@@ -191,7 +191,7 @@ const CONFIG = {
   // 群れが通り過ぎた先のおにぎりは食われてなくなる ＝ 遅いと回復を落とす
   climb: {
     pickSec: 2.6,       // あみだを見せて、選ばせる時間
-    climbSpeed: 220,    // 登る速さ。選んだ後は自動
+    climbSpeed: 460,    // 登る速さ。選んだ後は自動
     total: 800, auto: 55, perTap: 22,
     swarmStart: -110, swarmSpeed: 110, swarmAccel: 14,
     items: [0.40, 0.75],
@@ -3190,10 +3190,14 @@ const SFX = (()=>{
      短い音を鳴らし続けると忙しないので、**一本の持続音を出しっぱなし**にして、
      そこに手応えの音を重ねる。落下は風、昇りは坑の反響 */
   const AMBI = {
-    wind: { lp: 900, vol: 0.055, wob: 0.35 },   // 落ちている風
-    pipe: { lp: 320, vol: 0.040, wob: 0.10 },   // 縦坑にこもる音
+    // 落ちている風。落下のあいだ、ずっと鳴っている
+    wind:  { lp: 1400, vol: 0.115, wob: 0.45 },
+    // 縦坑にこもる音
+    pipe:  { lp: 320,  vol: 0.040, wob: 0.10 },
+    // 登っている音。手をかけ続けているあいだ鳴らす
+    climb: { lp: 700,  vol: 0.085, wob: 0.9  },
   };
-  const FOR_AMBI = { falling:"wind", climb:"pipe" };
+  const FOR_AMBI = { falling:"wind", climb:"climb" };
   const live = {};
   function ambStop(name){
     const d = live[name];
@@ -3692,6 +3696,8 @@ function updateClimb(dt){
   // 登りは自動。桟に来たら隣の線へ流される
   const was=S.climbY;
   S.climbY += C.climbSpeed*dt;
+  // 桟を1つ越えるたびに手をかける音。登っているのが耳でも分かる
+  if(Math.floor(was/60)!==Math.floor(S.climbY/60)) se("rung");
   for(const r of S.amida){
     if(was < r.h && S.climbY >= r.h){
       if(S.climbLine===r.a){ S.climbLine=r.a+1; se("move"); }
@@ -5066,12 +5072,13 @@ function drawSewerScene(){
            最大ジャンプの頭は地面から約153px。そこまで蝙蝠が居ないと、
            上を飛べそうに見えてしまう */
         const need = C.maxJump*C.maxJump/(2*C.gravity) + C.standH;
-        const rows = Math.max(3, Math.ceil((need-lo)/24)+1);
+        const rows = Math.max(3, Math.ceil((need-lo)/30)+1);
         for(let r=0;r<rows;r++){
-          const n = (r%2===0) ? 3 : 2;
+          // 下ほど密、上ほど疎。壁のように塞ぎつつ、数は抑える
+          const n = r===0 ? 3 : (r%2===0 ? 2 : 1);
           // 一番下の段の腹を、塞ぐ帯の下端にぴったり付ける。
           // 少しでも浮かせると「高いところを飛んでいる」に見えてしまう
-          const by = bot-7-r*24;
+          const by = bot-7-r*30;
           if(by<top) break;
           for(let k=0;k<n;k++){
             const bx = sx + (k-(n-1)/2)*26;
@@ -5452,7 +5459,8 @@ function frame(now){
   if(innerWidth!==lastW||innerHeight!==lastH) resize();
   update(dt); render(); updateDebug();
   BGM.follow(S.scene, dt);          // 実時間で呼ぶ。update の中だと計測用の早送りに巻き込まれる
-  SFX.ambience(S.scene);            // 落下と昇りの持続音。曲を置かない画面を無音にしない
+  // 登っている間だけ音を出す。選んでいる間は静かにして、読むことに集中させる
+  SFX.ambience(S.scene==="climb" && S.climbPhase!=="run" ? "" : S.scene);
   for(const k in edge) delete edge[k];
   requestAnimationFrame(frame);
 }
