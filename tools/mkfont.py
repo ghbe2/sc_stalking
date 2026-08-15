@@ -19,18 +19,41 @@ CHARS = ("0123456789"
          "abcdefghijklmnopqrstuvwxyz"
          ".,:;!?-+/*=<>()[]%#'\"& ")
 
+# 日本語は、**実際に使う字だけ**を焼く。全部入れると重すぎるため。
+# 文言を変えたらここへ足して、もう一度流すこと。
+JP_TEXT = (
+    "にげろ！"
+    "カメラが向いたらかくれろ"
+    "あぶなくなったら飛び込め"
+    "おちる！"
+    "おにぎりでハートがもどる"
+    "したみち"
+    "おしてかがむはなしてとぶ"
+    "水たまりは音が出る"
+    "のぼれ！"
+    "れんだであがれ"
+    "むれより先に"
+    "みつかった！"
+    "上の帯が網のくる列"
+    "秒しのげば逃げきり"
+    "０１２３４５６７８９"
+)
+
 # 字幅・字高・使うフォント・大きさ・二値化の閾値
 # 一度小さすぎた。実機で読めることを優先して、一段ずつ大きくしてある
 SETS = [
     ("F8",  "consolab.ttf", 8, 11, 14, 120),   # 注記・小さい字
     ("F12", "consolab.ttf", 12, 16, 20, 118),  # 見出し・数字
+    ("J16", "meiryob.ttc", 17, 19, 17, 118),   # 日本語・本文
+    ("J28", "meiryob.ttc", 29, 32, 29, 118),   # 日本語・見出し
 ]
 
 
 def build(name, ttf, cw, ch, size, thr):
     f = ImageFont.truetype(os.path.join(FONTS, ttf), size)
     rows = {}
-    for c in CHARS:
+    chars = (CHARS + "".join(sorted(set(JP_TEXT)))) if name.startswith("J") else CHARS
+    for c in chars:
         im = Image.new("L", (cw*2, ch*2), 0)
         d = ImageDraw.Draw(im)
         # 左上に寄せて描き、二値化してから枠へ収める
@@ -46,7 +69,7 @@ def build(name, ttf, cw, ch, size, thr):
             cell.paste(g, ((cw-g.width)//2, ch-g.height-1 if ch-g.height-1 >= 0 else 0))
         px = cell.load()
         rows[c] = ["".join("1" if px[x, y] else "0" for x in range(cw)) for y in range(ch)]
-    return rows
+    return rows, chars
 
 
 def main():
@@ -54,9 +77,9 @@ def main():
            "   画面に TTF を直接描くとアンチエイリアスで中間色が出るので、",
            "   あらかじめ二値にしておく。手で編集しないこと */"]
     for name, ttf, cw, ch, size, thr in SETS:
-        rows = build(name, ttf, cw, ch, size, thr)
+        rows, chars = build(name, ttf, cw, ch, size, thr)
         out.append("const %s = { w:%d, h:%d, g:{" % (name, cw, ch))
-        for c in CHARS:
+        for c in chars:
             key = c.replace("\\", "\\\\").replace('"', '\\"')
             out.append('  "%s":"%s",' % (key, " ".join(rows[c])))
         out.append("}};")
@@ -72,7 +95,7 @@ def main():
     i = src.index("*/", src.index(A)) + 3
     j = src.index(B)
     io.open(dst, "w", encoding="utf-8").write(src[:i] + js + "\n" + src[j:])
-    print("%d字 x %d書体 を差し込んだ" % (len(CHARS), len(SETS)))
+    print("英数%d字 + 和字%d字 / %d書体 を差し込んだ" % (len(CHARS), len(set(JP_TEXT)), len(SETS)))
 
 
 if __name__ == "__main__":
