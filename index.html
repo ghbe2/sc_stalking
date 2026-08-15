@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0814F";
+const BUILD = "0814G";
 
 /* ============================================================
    CONFIG
@@ -85,7 +85,8 @@ const CONFIG = {
 
   // 走っているだけで点が入る。粘るほどレートが上がる＝これが「粘る理由」
   scoreRate: { far: 10, near: 55 },
-  score: { can: 30, rice: 150 },
+  // 拾いもの。回復のおにぎり・下水のチーズと形が被らないようにする
+  score: { apple: 30, banana: 150 },
 
   // 歩いてくる連中だけが速くなる。落ちているアイテムは速くならない
   enemySpeed: { far: 1.35, near: 2.75 },
@@ -116,8 +117,8 @@ const CONFIG = {
     kid:      { drift:-48, w: 9, h:13 },
     man:      { drift:-24, w:11, h:18, pauseChance:0.45, pauseSec:1.1 },
     woman:    { cross: 46, w:11, h:18 },
-    can:      { w: 7, h: 9 },
-    rice:     { w: 9, h: 8 },
+    apple:    { w:18, h:18 },
+    banana:   { w:22, h:16 },
     // 逃げ道なので大きく、飛び込める間合いも深くとる（外すと次まで長い）
     manhole:  { w:34, h:22, depth:26 },
   },
@@ -3389,7 +3390,7 @@ function fillCrowd(){
 /** 落ちているもの。歩かないので、時間が経っても速くならない */
 function spawnItem(){
   if(S.dist < S.nextItem) return;
-  add(rnd()<0.72?"can":"rice", S.dist+VH*1.2, Math.floor(rnd()*CONFIG.lanes));
+  add(rnd()<0.72?"apple":"banana", S.dist+VH*1.2, Math.floor(rnd()*CONFIG.lanes));
   S.nextItem = S.dist + CONFIG.spawn.itemDist*(0.7+rnd()*0.6);
 }
 function spawnWoman(){
@@ -3938,7 +3939,7 @@ function updatePlay(dt){
 
     if(e.kind==="manhole"){ se("dive"); return enterFall(); }   // 飛び込む → 落下
 
-    if(e.kind==="can" || e.kind==="rice"){
+    if(e.kind==="apple" || e.kind==="banana"){
       e.dead=true;
       const p = CONFIG.score[e.kind];
       S.score += p; toast("+"+p); se("pick");
@@ -4576,16 +4577,12 @@ function drawActor(e){
   if(y<HUD_H-28||y>VH+28) return;
   const x = e.kind==="woman" ? e.x : laneX(e.lane);
   switch(e.kind){
-    case "manhole": {
-      const bl=Math.floor(S.t*7)%2===0;
-      ring(x,y,A.w/2,A.h/2,bl?PAL.ink:PAL.dim,2);
-      ring(x,y,A.w/2-5,A.h/2-4,PAL.dim);
-      // 逃げ道だと分かっていないと、そもそも飛び込まない
-      if(y>HUD_H+16 && y<VH-20) hint("ESCAPE!", x, y-A.h/2-11);
+    case "manhole":
+      drawManhole(x, y);
       break;
-    }
-    case "can":   blit(SPR.can, x, y+4); break;
-    case "rice":  blit(SPR.onigiri, x, y+5); break;
+    // 拾いものは金で塗る。桃の階調の外にあるので、拾えるものだと一目で分かる
+    case "apple":   blitTint(SPR.apple,  x, y+9,  PAL.gold); break;
+    case "banana":  blitTint(SPR.banana, x, y+8,  PAL.gold); break;
     // 正面の絵しかないので、左右を反転して交互に出す＝体を振って歩いて見える。
     // 女は横切る絵なので反転させず、進む向きにだけ合わせる
     case "man":   blit(SPR.man, x, y+10+(Math.floor(S.t*5)%2), Math.floor(S.t*5)%2===0); break;
@@ -4622,15 +4619,16 @@ function drawStalkBar(top, k, label){
 }
 
 /** 監視されている列。目はミナリの視線の先＝画面の上。列そのものもハッチで示す */
+/* 監視されている列。カメラが寄っている＝その列だけ画が明るい、という
+   見せ方にする。目の形は説明の一枚と同じものを使う（同じ物だと分かるように） */
 function drawWatches(){
   const blink = Math.floor(S.t*6)%2===0;
-  const top = HUD_H+14;                       // ゲージの帯とぶつからない位置から
+  const top = HUD_H+20;
   for(const w of S.watches){
     const x0=laneW()*w.lane, ww=laneW(), cx=x0+ww/2;
-    for(let y=top+2;y<VH;y+=6) px(x0+2,y,ww-4,1,PAL.off);
-    px(x0+1,top,1,VH-top,PAL.dim); px(x0+ww-2,top,1,VH-top,PAL.dim);
-    ring(cx,top+9,7,5,blink?PAL.ink:PAL.dim);
-    px(cx-2,top+7,4,4,PAL.ink);
+    px(x0, HUD_H, ww, VH-HUD_H-FOOT_H, PAL.off);          // カメラが寄っている列
+    for(let y=HUD_H+4;y<VH-FOOT_H;y+=8) px(x0+2,y,ww-4,1,PAL.d1);
+    drawEye(cx, top, blink);
   }
 }
 
@@ -5125,6 +5123,45 @@ function drawBrief(){
   px(16,gy,Math.round(gw*k),4,PAL.d3);
   drawChrome();
 }
+/** 一色で塗るスプライト。拾いものを金で抜くのに使う */
+function blitTint(spr, x, y, col){
+  const rows=spr.px, w=rows[0].length;
+  const x0=Math.round(x-w/2), y0=Math.round(y-rows.length);
+  for(let r=0;r<rows.length;r++){
+    const line=rows[r];
+    let run=-1;
+    for(let i=0;i<=w;i++){
+      const on = i<w && line[i]!==".";
+      if(on && run<0) run=i;
+      if(!on && run>=0){ px(x0+run, y0+r, i-run, 1, col); run=-1; }
+    }
+  }
+}
+/** 監視の目。説明の一枚と同じ形にして、初めて見た人が同じものだと分かるように */
+function drawEye(cx, cy, hot){
+  const c = hot ? PAL.warn : PAL.d2;
+  ring(cx, cy, 16, 10, c, 2);
+  blob(cx, cy, 6, 6, c);
+}
+/** マンホール。蓋を穴に重ね、上だけ口を開ける。説明の一枚と同じ形 */
+function drawManhole(cx, cy){
+  const rw=38, rh=17;
+  ring(cx, cy, rw, rh, PAL.gold, 2);
+  blob(cx, cy, rw-3, rh-3, PAL.bg);
+  for(let i=0;i<3;i++) px(cx-(20-i*6), cy-4+i*6, (20-i*6)*2, 2, PAL.d1);
+  const ly=cy+16;
+  blob(cx, ly+2, rw-3, rh-4, PAL.d1);
+  blob(cx, ly-1, rw-3, rh-5, PAL.d3);
+  ring(cx, ly-1, rw-9, rh-7, PAL.d1, 1);
+  ring(cx, ly-1, 13, 5, PAL.d1, 1);
+  for(let k=0;k<10;k++){
+    const a=k/10*6.2832;
+    for(let t=0;t<=6;t++){
+      const r=13+(rw-21)*t/6;
+      px(cx+Math.cos(a)*r, ly-1+Math.sin(a)*(5+(rh-12)*t/6), 1, 1, PAL.d1);
+    }
+  }
+}
 /** 塗りつぶした三角。dir -1=左向き / 1=右向き。
     線を足すと矢印に見えず、ただの図形が汚れる。三角だけで足りる */
 function tri(cx, cy, w, h, dir, c){
@@ -5150,28 +5187,12 @@ function briefFig(kind, cx, y){
     px(x0+2,y+2,pw/2-2,ph-4,PAL.off);
     for(let yy=y+6;yy<y+ph-4;yy+=8) px(x0+2,yy,pw/2-2,1,PAL.d1);
     const ex=x0+pw/4, ey=y+24;
-    ring(ex,ey,16,10,W2,2); blob(ex,ey,6,6,W2);
+    drawEye(ex, ey, true);      // 本編とまったく同じ形を使う
     blit(SPR.minariBackA, x0+pw*0.75, y+ph-10);
     for(let i=0;i<4;i++) px(ex-2+i*8, y+ph-34, 5, 3, C);
     tri(ex+40, y+ph-40, 12, 16, 1, A);
   } else if(kind==="hole"){
-    // 蓋を穴に重ねる。上だけ口を開けて、そこが逃げ道
-    const rw=38, rh=17, my=y+24;
-    ring(cx,my,rw,rh,PAL.d2,2);
-    blob(cx,my,rw-3,rh-3,PAL.bg);
-    for(let i=0;i<3;i++) px(cx-(20-i*6), my-4+i*6, (20-i*6)*2, 2, PAL.d1);
-    const ly=my+16;
-    blob(cx,ly+2,rw-3,rh-4,PAL.d1);
-    blob(cx,ly-1,rw-3,rh-5,C);
-    ring(cx,ly-1,rw-9,rh-7,PAL.d1,1);
-    ring(cx,ly-1,13,5,PAL.d1,1);
-    for(let k2=0;k2<10;k2++){
-      const a2=k2/10*6.2832;
-      for(let t=0;t<=6;t++){
-        const r=13+(rw-21)*t/6;
-        px(cx+Math.cos(a2)*r, ly-1+Math.sin(a2)*(5+(rh-12)*t/6), 1, 1, PAL.d1);
-      }
-    }
+    drawManhole(cx, y+24);      // 本編とまったく同じ形を使う
   } else if(kind==="food"){
     blit(SPR.onigiri, cx, y+30);
   } else if(kind==="duck"){
