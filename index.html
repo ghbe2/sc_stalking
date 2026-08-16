@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0816D";
+const BUILD = "0816E";
 
 /* ============================================================
    CONFIG
@@ -170,7 +170,7 @@ const CONFIG = {
     puddleNoise: 20,
 
     // チーズ。走っているだけでは届かず、跳べば取れる
-    cheeseW: 12, cheeseH: 11, cheeseY: 48, cheeseScore: 60,
+    cheeseW: 12, cheeseH: 11, cheeseScore: 60,
 
     // 梯子＝脱出。地面からは最大溜めでも届かない高さに吊ってある。
     // 手前に浮いた足場があり、そこに跳び乗って、さらに跳ばないと掴めない。
@@ -286,6 +286,16 @@ function blit(spr, x, y, flip){
   const rows = spr.px, w = rows[0].length;
   ctx.drawImage(bake(spr)[flip?1:0],
                 Math.round(x - w/2), Math.round(y - rows.length));
+}
+/** 縮めて置く。**動いている絵にだけ**使うこと。
+    止まった絵を半端な倍率で縮めると、線の太さが場所によって変わって粗く見える */
+function blitS(spr, x, y, k, flip){
+  const rows = spr.px;
+  const w = Math.max(1,Math.round(rows[0].length*k)), h = Math.max(1,Math.round(rows.length*k));
+  const sm = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bake(spr)[flip?1:0], Math.round(x-w/2), Math.round(y-h), w, h);
+  ctx.imageSmoothingEnabled = sm;
 }
 /** ドット絵の行の長さが揃っているか。ずれると絵が崩れるので起動時に検査する */
 function validateSprites(){
@@ -3592,7 +3602,7 @@ const U = 2;
   const S = C.sewer;
   mul(S, ["speed","gravity","minJump","maxJump","standH","crouchH","bodyW",
           "batW","batH","batStack","batDrift","batSwapGap","batMinGap",
-          "cheeseW","cheeseH","cheeseY","cheeseHiY","platLowY",
+          "cheeseW","cheeseH","cheeseHiY","platLowY",
           "ladderDist","ladderW","ladderLo","platH","platW","platThick","ramp"]);
   for(const k in S.batBands) S.batBands[k] = S.batBands[k].map(b => b.map(v => v*U));
   mul(C.climb, ["total","auto","perTap","swarmStart","swarmSpeed","swarmAccel"]);
@@ -3636,8 +3646,6 @@ function validateSewer(){
         bad.push(`${name}: 溜めなしでは越えにくい（頂点${minApex.toFixed(0)}px / 必要${y}px）`);
     }
   }
-  if(C.cheeseY <= C.standH) bad.push("チーズが低い（走っているだけで取れる）");
-  if(C.cheeseY > head)      bad.push("チーズが高い（最大溜めでも届かない）");
   // 足場は地面から跳んで乗れること。乗らずに下を走り抜けられること（一方通行）
   if(C.platH > apex) bad.push(`足場が高い（最大溜めの頂点${apex.toFixed(0)}px では乗れない）`);
   if(C.platH <= minApex)
@@ -3654,8 +3662,8 @@ function validateSewer(){
     bad.push("高いチーズが高い（足場に乗っても届かない）");
   if(C.cheeseHiY > head)
     bad.push("高いチーズが高い（地面からはどうやっても取れない）");
-  if(C.cheeseHiY <= C.cheeseY)
-    bad.push("高いチーズが低い（通常のチーズと変わらない）");
+  if(C.cheeseHiY <= C.platH)
+    bad.push("高いチーズが低い（足場より下にあって、上下の区別が付かない）");
   /* 足場の下の果物。**跳ばずに取れて、足場の上からは取れない**の両方。
      ここが崩れると「下を走る」という選択が消える */
   if(C.platLowY + C.cheeseH > C.standH)
@@ -3758,10 +3766,10 @@ const S = {
   nextItem:0, nextWoman:0, nextWatch:0, nextManhole:0,
   screenT:0,                    // その画面に入ってからの秒数（難易度の時計）
   toukaFrom:"play",             // トウカへ連れて来られた場所。逃げ切ったらここの続きへ
-  toukaVisits:0, tkThrown:0, tkQuota:0,   // 何度目か / 投げた本数 / 投げきる本数
+  toukaVisits:0, tkThrown:0, tkQuota:0, tkOut:0,   // 何度目か / 投げた本数 / 投げきる本数
   watched:false, spotT:0,       // 見張られている / 捕捉されてからの秒数
   briefKey:"", briefT:0,        // 画面のあいだに挟む説明
-  shake:0, toasts:[], bang:0, animT:0,
+  shake:0, toasts:[], pops:[], bang:0, animT:0,
   end:"", best:0, seed:"",
 };
 /* 難易度の時計は「その画面に入ってからの時間」で回す（S.screenT）。
@@ -3785,6 +3793,32 @@ const scoreRate  = () => lerp(CONFIG.scoreRate.far,  CONFIG.scoreRate.near,  den
 const enemySpeed = () => lerp(CONFIG.enemySpeed.far, CONFIG.enemySpeed.near, dens())
                        * (1 + over()*CONFIG.overdrive);
 function toast(txt){ S.toasts.push({txt,life:1.0}); if(S.toasts.length>3) S.toasts.shift(); }
+/** 点が入ったことを、**その場で**言う。
+    隅の小さな行では何点入ったのか分からないので、頭の上へ浮かせる。
+    位置は出した瞬間のものを覚えておく。画面が流れても数字は流されない */
+function pop(txt, x, y, col){
+  S.pops.push({txt, x, y, life:0.9, col:col||PAL.gold});
+  if(S.pops.length>6) S.pops.shift();
+}
+/** いまのミナリの頭の位置。画面ごとに居場所が違うので、ここで一本化する */
+function headXY(){
+  const C=CONFIG.sewer;
+  switch(S.scene){
+    case "falling": return [S.fallX, VH*0.30-14];
+    case "sewer":   { const gy=HUD_H+(VH-HUD_H)*C.groundY;
+                      return [VW*0.30, gy-S.swY-(S.swDown?C.crouchH:C.standH)-10]; }
+    case "climb":   return [VW*0.5, VH*0.55];
+    case "touka":   return [VW/2, VH*0.42];
+    default:        return [laneX(S.laneF), playerY-SPR.minariBackA.px.length-8];
+  }
+}
+/** 点が入ったときはこれを通す。頭の上と、隅の行の両方に出る */
+function gain(p, why){
+  S.score += p;
+  const [hx,hy] = headXY();
+  pop("+"+p, hx, hy);
+  if(why) toast(why);
+}
 
 /* ============================================================
    SE — 音は合成する。単一HTMLを保ちたいので、音声ファイルは持たない。
@@ -3859,9 +3893,17 @@ const SFX = (()=>{
     if(!d) return;
     delete live[name];
     try{
-      d.g.gain.cancelScheduledValues(ac.currentTime);
-      d.g.gain.setTargetAtTime(0.0001, ac.currentTime, 0.10);
-      d.src.stop(ac.currentTime + 0.5);
+      const t = ac.currentTime;
+      d.g.gain.cancelScheduledValues(t);
+      d.g.gain.setTargetAtTime(0.0001, t, 0.10);
+      d.src.stop(t + 0.5);
+      /* 揺らし役も必ず止める。ここを落としていたので、画面を出入りするたびに
+         発振器が1個ずつ residue として残り続け、**遊ぶほど重くなっていた**。
+         繋ぎ先を切るところまでやらないと、音の木から外れない */
+      if(d.lfo){ d.lfo.stop(t + 0.5); }
+      setTimeout(()=>{ try{ d.src.disconnect(); d.g.disconnect();
+                            if(d.lfo) d.lfo.disconnect();
+                            if(d.lg)  d.lg.disconnect(); }catch(e){} }, 900);
     }catch(e){}
   }
   function ambStart(name){
@@ -3879,7 +3921,7 @@ const SFX = (()=>{
       g.gain.setValueAtTime(0.0001, ac.currentTime);
       g.gain.setTargetAtTime(C.vol, ac.currentTime, 0.06);
       o.connect(g); g.connect(master); o.start();
-      live[name] = { src:o, g, lfo };
+      live[name] = { src:o, g, lfo, lg };
       return;
     }
     if(!noiseBuf) noise(0.001, {vol:0.0001});        // 雑音の元を用意させる
@@ -3895,20 +3937,27 @@ const SFX = (()=>{
     lfo.connect(lg); lg.connect(f.frequency); lfo.start();
     src.connect(f); f.connect(g); g.connect(master);
     src.start();
-    live[name] = { src, g, lfo };
+    live[name] = { src, g, lfo, lg };
   }
 
   // 場面ごとの音。名前で呼べるようにして、鳴らす場所には理屈を書かない
   const BANK = {
     move:    ()=> tone(520, 700, 0.045, {vol:0.35}),
     tap:     ()=> tone(340, 340, 0.030, {vol:0.30, type:"triangle"}),
-    pick:    ()=>{ tone(880,880,0.05,{vol:0.5}); tone(1320,1320,0.07,{vol:0.45,delay:0.05}); },
+    // 拾った。3音の上りにして、点が入ったことを耳でも分かるようにする
+    pick:    ()=>{ [988,1319,1976].forEach((f,i)=>
+                     tone(f,f,i===2?0.13:0.05,{vol:0.55,delay:i*0.045}));
+                   tone(2637,2637,0.06,{vol:0.22,delay:0.13,type:"triangle"}); },
     heal:    ()=>{ [660,880,1170].forEach((f,i)=>tone(f,f,0.08,{vol:0.5,delay:i*0.07,type:"triangle"})); },
     hurt:    ()=>{ tone(300,90,0.22,{vol:0.7,type:"sawtooth"}); noise(0.12,{vol:0.35}); },
     scream:  ()=>{ tone(700,1400,0.10,{vol:0.5}); tone(1400,700,0.14,{vol:0.5,delay:0.10}); },
     jump:    ()=> tone(360, 780, 0.11, {vol:0.45}),
     land:    ()=> noise(0.06, {vol:0.30, lp:1400}),
-    splash:  ()=>{ noise(0.20,{vol:0.45,hp:900}); tone(500,240,0.14,{vol:0.25,type:"triangle"}); },
+    // 水を踏む。**短く弾けて、尾を引く**。前は「シャー」と伸びるだけだった
+    splash:  ()=>{ noise(0.05,{vol:0.75,hp:1500});                       // バ
+                   noise(0.26,{vol:0.42,lp:2600,delay:0.03});            // シャ
+                   tone(1500,300,0.10,{vol:0.22,type:"triangle"});
+                   noise(0.16,{vol:0.16,hp:3800,delay:0.10}); },         // 飛沫
     dive:    ()=>{ tone(700,150,0.35,{vol:0.55,type:"triangle"}); noise(0.25,{vol:0.25,lp:800,delay:0.05}); },
     // 落ちはじめ。長く下がる音で「ここから落ちる」と分かる
     fall:    ()=>{ tone(900,120,1.10,{vol:0.40,type:"triangle"});
@@ -4145,10 +4194,12 @@ function onDown(e){
   edge.tap=true;                                  // 昇りの連打で使う
   if(S.scene==="title"||S.scene==="over"||S.scene==="brief"){ edge.start=true; return; }
   const r=cv.getBoundingClientRect();
-  touch.dir = ((p.clientX-r.left)/r.width*VW) < VW/2 ? -1 : 1;
+  const vx = (p.clientX-r.left)/r.width*VW;
+  touch.dir = vx < VW/2 ? -1 : 1;
+  // あみだは**押した所がそのまま入口**。画面を3つに割って、その番号を渡す
+  if(S.scene==="climb"){ edge.pick3 = clamp(Math.floor(vx/(VW/3)), 0, 2); return; }
   // 路地とトウカは 1 タップ 1 列。落下は touch.dir を押しっぱなしで使うので edge は立てない
-  // 左右で選ぶ画面。あみだの入口選びもここに含める
-  if(S.scene==="play"||S.scene==="touka"||S.scene==="climb")
+  if(S.scene==="play"||S.scene==="touka")
     edge[touch.dir<0?"left":"right"]=true;
 }
 function onMove(e){ if(!touch.down)return; const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; }
@@ -4156,6 +4207,8 @@ function onUp(){ touch.down=false; touch.dir=0; }
 function holdRepeat(dt){
   const R=CONFIG.input;
   if(!touch.down||!touch.dir) return;
+  // あみだは押した所がそのまま入口。押しっぱなしで隣へ流れては困る
+  if(S.scene==="climb") return;
   touch.holdT+=dt;
   if(touch.holdT<R.repeatDelay) return;
   const n=Math.floor((touch.holdT-R.repeatDelay)/R.repeatInterval);
@@ -4202,14 +4255,14 @@ const BRIEF = {
              a:["tap",  "tap!"],
              b:["cam",  "カメラからかくれろ"],
              c:["hole", "あぶなくなったら飛び込め"] },
-  falling: { band:"下水ににげた", secs:4.0,
+  falling: { band:"にげきった", secs:4.0,
              a:["hold", "hold!"],
              c:["food", "おにぎりおいしい"] },
   sewer:   { band:"ひそめ！", secs:5.5,
              a:["pair", ""],
              b:["wave", "水たまりをふむとうるさい"],
              c:["ladder", "はしごをつかんでだっしゅつ"] },
-  climb:   { band:"のぼれ！", secs:4.5,
+  climb:   { band:"にげきった", secs:4.5,
              a:["amida", "あみだをよんでえらべ"],
              c:["food",  "おにぎりにつけばラッキー"] },
   touka:   { band:"みつかった！", secs:4.5,
@@ -4255,7 +4308,7 @@ function startRun(){
   S.t=0;
   S.score=0; S.dist=0;
   S.hearts=CONFIG.hearts;
-  S.toasts=[]; S.shake=0; S.bang=0; S.end="";
+  S.toasts=[]; S.pops=[]; S.shake=0; S.bang=0; S.end="";
   enterAlley();
 }
 
@@ -4263,8 +4316,13 @@ function startRun(){
    落下 — マンホールに飛び込んだあと。おにぎりを拾ってハートを取り戻す
    ------------------------------------------------------------ */
 function gotoFall(){
-  S.scene="falling"; S.screenT=0; S.fallT=0;   // 落ちる音は持続音のほうで鳴る S.fallDist=0; S.healed=0;
+  /* ここは一度、行末コメントが後ろの代入を飲み込んでいた。
+     S.fallDist が前回の落下の値のまま残るので、**2回目からは
+     アイテムが全部後ろに置かれて1つも出てこなかった** */
+  S.scene="falling"; S.screenT=0; S.fallT=0;
+  S.fallDist=0; S.healed=0; S.fallOut=0;
   S.fallX=VW/2; S.fallVX=0; S.fallItems=[];
+  se("fall");                                 // 落ちはじめ。持続音はこのあと乗る
   const total=CONFIG.fall.duration*CONFIG.fall.scroll;
   const M=36;
   /* 落ちてくるもの。**おにぎりは1個だけ**にする。
@@ -4294,6 +4352,16 @@ function updateFall(dt){
   S.fallX = clamp(S.fallX + S.fallVX*dt, 10, VW-10);
   if(S.fallX<=10 || S.fallX>=VW-10) S.fallVX=0;
 
+  /* 締め。**カメラを止めて、ミナリだけ落としていく**。
+     時間切れでいきなり画面が切り替わると、落ちきったのか途中なのか
+     分からない。奥へ抜けていくところまで見せる */
+  if(S.fallOut>0 || S.fallT>=CONFIG.fall.duration){
+    if(S.fallOut===0) se("dive");
+    S.fallOut += dt;
+    if(S.fallOut>1.05){ se("thud"); return enterSewer(); }
+    return;
+  }
+
   S.fallT += dt;
   const wallWas = Math.floor(S.fallDist/44);
   S.fallDist += F.scroll*dt;
@@ -4307,11 +4375,10 @@ function updateFall(dt){
         S.hearts++; S.healed++; toast("ハート回復"); se("heal");
       } else {
         const p = CONFIG.score[it.kind] || CONFIG.score.banana;
-        S.score+=p; toast("+"+p); se("pick");
+        gain(p); se("pick");
       }
     }
   }
-  if(S.fallT>=F.duration){ se("thud"); return enterSewer(); }
 }
 
 /* ------------------------------------------------------------
@@ -4362,8 +4429,12 @@ function updateClimb(dt){
   S.climbT += dt;
 
   if(S.climbPhase==="pick"){
-    // 先に全部見えている。読んでから選ぶ。クイズと同じ立ち位置
-    if(edge.left)  { S.climbLine=clamp(S.climbLine-1,0,2); se("move"); }
+    /* 先に全部見えている。読んでから選ぶ。クイズと同じ立ち位置。
+       **押した所がそのまま入口**。3分割した左・真ん中・右を直に指す。
+       前は左右への1つずつの移動だったので、真ん中を押したのに
+       隣へ動く、ということが起きていた。時間内なら何度でも押し直せる */
+    if(edge.pick3>=0 && edge.pick3!==S.climbLine){ S.climbLine=edge.pick3; se("move"); }
+    if(edge.left)  { S.climbLine=clamp(S.climbLine-1,0,2); se("move"); }   // キーボード用
     if(edge.right) { S.climbLine=clamp(S.climbLine+1,0,2); se("move"); }
     S.climbPick -= dt;
     if(S.climbPick<=0){ S.climbPhase="run"; se("tap"); }
@@ -4386,9 +4457,9 @@ function updateClimb(dt){
     const got=S.climbExits[S.climbLine];
     if(got==="onigiri"){
       if(S.hearts<CONFIG.hearts){ S.hearts++; S.healed++; toast("ハート回復"); se("heal"); }
-      else { S.score+=CONFIG.score.apple; toast("+"+CONFIG.score.apple); se("pick"); }
+      else { gain(CONFIG.score.apple); se("pick"); }
     } else if(got){
-      S.score+=CONFIG.score[got]; toast("+"+CONFIG.score[got]); se("pick");
+      gain(CONFIG.score[got]); se("pick");
     }
     se("stage"); S.stage++; enterAlley();
   }
@@ -4408,7 +4479,7 @@ function gotoTouka(){
   S.tkQuota = Math.min(CONFIG.touka.netsMax,
                        CONFIG.touka.netsBase + CONFIG.touka.netsStep*(S.toukaVisits-1));
   S.tkThrown = 0;
-  S.tkNets=[]; S.tkPoints=[];
+  S.tkNets=[]; S.tkPoints=[]; S.tkOut=0;
   S.tkDodge=0; S.tkDodgeT=0; S.tkLane=1; S.tkLaneF=1;
   S.tkLane=S.tkLaneF=Math.floor(C.lanes/2);
   S.tkNext=0.9;
@@ -4416,6 +4487,18 @@ function gotoTouka(){
 }
 function updateTouka(dt){
   const C=CONFIG.touka;
+  /* 締め。**トウカたちが遠ざかっていく**。投げきった瞬間に画面が
+     切り替わると、逃げ切ったのか捕まったのか分からない。
+     小さくなって地平へ吸われるところまで見せる */
+  if(S.tkOut>0){
+    S.tkOut += dt;
+    if(S.tkOut < 1.5) return;
+    /* 元居た場所の**続き**へ戻す。路地で捕まったなら、そのまま逃げ道の
+       落下へ。下水で捕まったなら、地上へ出る梯子へ */
+    if(S.toukaFrom==="sewer") enterClimb();
+    else enterFall();
+    return;
+  }
   S.tkT += dt;
   // 予告の長さや間隔は、投げきるまでの進み具合で決める
   const k = clamp(S.tkThrown/Math.max(1,S.tkQuota), 0, 1);
@@ -4484,18 +4567,13 @@ function updateTouka(dt){
       if(net.lane === S.tkLane) return finish("touka");
       // かわすたびに大きく入る。ここがトウカへ行く見返り
       S.shake = Math.max(S.shake, 2.5); se("miss");
-      S.score += CONFIG.touka.dodgeScore; toast("+"+CONFIG.touka.dodgeScore);
+      gain(CONFIG.touka.dodgeScore);
     }
   }
   S.tkNets = S.tkNets.filter(n=>n.age < n.tele+n.fly+0.35);
 
   if(S.tkThrown >= S.tkQuota && S.tkNets.every(n=>n.hit)){
-    S.score += C.bonus; toast("+"+C.bonus); se("clear");
-    /* 元居た場所の**続き**へ戻す。路地で捕まったなら、そのまま逃げ道の
-       落下へ。下水で捕まったなら、地上へ出る梯子へ。
-       路地へ直接戻すと、逃げ切ったのに振り出しに立たされて筋が通らない */
-    if(S.toukaFrom==="sewer") enterClimb();
-    else enterFall();
+    gain(C.bonus); se("clear"); S.tkOut = 0.001;
   }
 }
 
@@ -4531,7 +4609,10 @@ function fillSewer(){
       // 多すぎたので間引く。3つに2つだけ置く
       if(rnd()<0.36) continue;
       const r=rnd();
-      S.swItems.push({x:S.swCursor+x, y:CONFIG.sewer.cheeseY, dead:false,
+      /* **足場と同じ高さ(96px)には置かない。** 足場は112pxにあるので、
+         浮いている果物と足場が同じ高さに並んで、どちらが乗れるのか読めなかった。
+         走り抜けるだけで取れる高さへ下ろす */
+      S.swItems.push({x:S.swCursor+x, y:CONFIG.sewer.platLowY, dead:false,
                       kind: r<0.40?"banana": r<0.75?"apple":"cheese"});
     }
     for(const x of (p.cheeseHi||[]))
@@ -4668,8 +4749,7 @@ function updateSewer(dt){
     const cy = it.y;
     if(S.swY+h >= cy && S.swY <= cy+C.cheeseH){
       it.dead=true;
-      const p2 = CONFIG.score[it.kind||"cheese"];
-      S.score += p2; toast("+"+p2); se("pick");
+      gain(CONFIG.score[it.kind||"cheese"]); se("pick");
     }
   }
   // 梯子は地面からは届かない高さ。段差に乗って、そこから跳んだときだけ手が届く
@@ -4750,8 +4830,7 @@ function updatePlay(dt){
 
     if(e.kind==="apple" || e.kind==="banana" || e.kind==="cheese"){
       e.dead=true;
-      const p = CONFIG.score[e.kind];
-      S.score += p; toast("+"+p); se("pick");
+      gain(CONFIG.score[e.kind]); se("pick");
       continue;
     }
     if(S.invuln>0) continue;
@@ -4798,6 +4877,8 @@ function update(dt){
   touch.showT=Math.max(0,touch.showT-dt);
   for(const t of S.toasts) t.life-=dt;
   S.toasts=S.toasts.filter(t=>t.life>0);
+  for(const q of S.pops){ q.life-=dt; q.y-=dt*36; }   // ゆっくり上がって消える
+  S.pops=S.pops.filter(q=>q.life>0);
   if(S.scene==="falling") return updateFall(dt);
   if(S.scene==="sewer")   return updateSewer(dt);
   if(S.scene==="climb")   return updateClimb(dt);
@@ -5564,10 +5645,12 @@ function drawFall(){
       lamprey(x, edge+4+Math.round(Math.sin(S.t*6+i*1.7)*2), 1.4);
     }
   }
-  drawMinariFall(S.fallX, fy);
+  // 締めのあいだだけ、壁は止まったままミナリが下へ抜けていく
+  const outY = S.fallOut>0 ? Math.round(600*S.fallOut*S.fallOut) : 0;
+  drawMinariFall(S.fallX, fy+outY);
 
   // 落下は押しっぱなしで流れる。押す場所が操作だと分かるまで出しておく
-  if(S.fallT<2.2) hint("HOLD L / R", VW/2, fy+42, PAL.dim);
+  if(S.fallT<2.2 && !S.fallOut) hint("HOLD L / R", VW/2, fy+42, PAL.dim);
   const left=Math.max(0,CONFIG.fall.duration-S.fallT);
   textC("FALLING",HUD_H+8,PAL.dim);
   textC(left.toFixed(1),HUD_H+18,PAL.ink);
@@ -5629,11 +5712,21 @@ function drawTouka(){
   const tBY = Math.round(yAt(1.35*FOC/tH));
   const lH = SPR.lampReady.px.length;
   const tX = Math.round(VW/2-24), hX = Math.round(VW/2+16);
-  shadow(tX, tBY, tH); shadow(hX, tBY, lH);
+  /* 逃げ切ったあとは**引き離されていく**。奥行きを増やすので、
+     小さくなりながら地平へ吸われていく。影も一緒に小さくなる */
+  const out = clamp(S.tkOut/1.5, 0, 1), sc = 1/(1+5.5*out*out);
+  const oBY = Math.round(lerp(tBY, vy+2, out*out));
+  const oTX = Math.round(lerp(tX, VW/2-6, out)), oHX = Math.round(lerp(hX, VW/2+4, out));
+  shadow(oTX, oBY, tH*sc); shadow(oHX, oBY, lH*sc);
   const throwing = S.tkNets.some(n=>!n.hit);
   // 4枚で1周。2枚だと歩きが硬い
-  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 6), tX, tBY);
-  blit(throwing?SPR.lampThrow:SPR.lampReady, hX, tBY);
+  if(out>0){
+    blitS(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 6), oTX, oBY, sc);
+    blitS(SPR.lampReady, oHX, oBY, sc);
+  } else {
+    blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 6), tX, tBY);
+    blit(throwing?SPR.lampThrow:SPR.lampReady, hX, tBY);
+  }
 
   /* 予告は画面の上端に、列ぶんの枡で出す。
      ミナリが画面の4割を占めるので、床に帯を引いても本人に隠れて見えない。
@@ -5986,8 +6079,19 @@ function drawLock(cx,cy,w,h){
   [[L,T,1],[R-t,T,1],[L,B-n,1],[R-t,B-n,1]].forEach(([x,y])=>px(x,y,t,n,c));
   textC("SPOTTED", T-18, c, 1, F8);
 }
+/** 頭の上に浮かぶ点。走査線の上に出す（下に敷くと数字が縞で割れる） */
+function drawPops(){
+  for(const q of S.pops){
+    if(q.life<0.25 && Math.floor(q.life*24)%2) continue;   // 消え際に瞬く
+    const w=tw(q.txt,1,F12), x=Math.round(clamp(q.x-w/2, 2, VW-w-2)), y=Math.round(q.y);
+    px(x-3, y-2, w+6, 22, PAL.bg);
+    px(x-3, y-2, w+6, 1, q.col); px(x-3, y+19, w+6, 1, q.col);
+    text(q.txt, x, y, q.col, 1, F12);
+  }
+}
 function drawHUD(){
   drawScanlines();
+  drawPops();
   drawBrackets();
   drawChrome();
 }
