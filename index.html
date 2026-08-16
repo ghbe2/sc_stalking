@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0816B";
+const BUILD = "0816C";
 
 /* ============================================================
    CONFIG
@@ -286,15 +286,6 @@ function blit(spr, x, y, flip){
   const rows = spr.px, w = rows[0].length;
   ctx.drawImage(bake(spr)[flip?1:0],
                 Math.round(x - w/2), Math.round(y - rows.length));
-}
-/** 縮めて置く。k は 1/2 や 1/3 だけにする。
-    半端な倍率で間引くと、線の太さが場所によって変わってジャギる */
-function blitK(spr, x, y, k, flip){
-  const rows = spr.px, w = Math.round(rows[0].length*k), h = Math.round(rows.length*k);
-  const sm = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(bake(spr)[flip?1:0], Math.round(x - w/2), Math.round(y - h), w, h);
-  ctx.imageSmoothingEnabled = sm;
 }
 /** ドット絵の行の長さが揃っているか。ずれると絵が崩れるので起動時に検査する */
 function validateSprites(){
@@ -5973,14 +5964,11 @@ function drawChrome(){
   if(st) textC(st, fy+9, S.spotT>0?PAL.warn:PAL.d2, 1, F8);
 }
 /** 走査線と四隅の括弧。地にだけ敷く（被写体の上に重ねると読めなくなる） */
-/* 監視モニタの地。走査線に**縦の目盛り**を足して、格子にする。
-   どの画面もこれを通すので、タイトルから結果まで同じ地の上に乗る。
-   色は PAL.scan（地との差が5階調ぶんしかない）に留める。
-   前に消したのはもっと濃い格子で、絵が読めなくなっていた */
+/* 監視モニタの地。**横の走査線だけ**にする。
+   縦の目盛りを足して格子にしたことがあるが、薄くしても見づらかった。
+   この画面の地は横縞で足りている */
 function drawScanlines(){
-  const T=HUD_H, B=VH-FOOT_H;
-  for(let y=T;y<B;y+=3) px(0,y,VW,1,PAL.scan);
-  for(let x=0;x<VW;x+=25) px(x,T,1,B-T,PAL.scan);
+  for(let y=HUD_H;y<VH-FOOT_H;y+=3) px(0,y,VW,1,PAL.scan);
 }
 function drawBrackets(){
   const T=HUD_H+4, B=VH-FOOT_H-6, L=4, R=VW-6;
@@ -6031,28 +6019,19 @@ function drawTitle(){
   /* 追う者と逃げる者。**その場で走らせる**。
      横へ流すと、逃げているというより画面を横断しているだけに見えた。
      位置は動かさず、コマ送りと上下の揺れだけで走っていることを伝える。
-     トウカフェーズより**ゆっくり**にして、動いていることだけ分かればいい */
+     大きさと立ち位置は原寸のまま。縮めるとミナリが小さくなりすぎた */
   const bob=hz=>Math.round(Math.sin(S.animT*hz*Math.PI*2)*2);
-
-  /* ミナリは半分に縮める。原寸だと 252×280 あって画面を埋めてしまい、
-     追う側のトウカ(108×148)より大きく見えてしまう。
-     半分にするとトウカのほうが背が高くなり、追われている絵になる */
-  // 足元の光と「にげる！」がぶつからない高さ
-  const mx=Math.round(VW*0.56), tx=Math.round(VW*0.30);
-  const mby=Math.round(VH*0.82), tby=Math.round(VH*0.60);
+  const mx=Math.round(VW*0.42), mby=Math.round(VH*0.88);
   searchlight(mx, mby, HUD_H+64);
-  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 4), tx, tby+bob(2));
-  blitK(anim(SPR.minariFrontA, SPR.minariFrontB, 7), mx, mby+bob(3.5), 0.5);
+  blit(anim4(SPR.toukaA, SPR.toukaA2, SPR.toukaB, SPR.toukaB2, 3), VW*0.72, VH*0.52+bob(1.5));
+  blit(anim(SPR.minariFrontA, SPR.minariFrontB, 6), mx, mby+bob(3));
 
   px(0, HUD_H+14, VW, 46, PAL.warn);
   textC("しゅがけストーキング", HUD_H+23, PAL.bg, 1, J28);
   textC("SHE IS ALWAYS WATCHING", HUD_H+68, PAL.d3, 1, F12);
   textC("RUN, MINARI, RUN", HUD_H+90, PAL.d2, 1, F8);
-  if(blink(2)){
-    const w=tw("にげる！",1,J28);
-    px(Math.round((VW-w)/2)-14, VH-FOOT_H-52, w+28, 46, PAL.bg);
-    textC("にげる！", VH-FOOT_H-44, PAL.d5, 1, J28);
-  }
+  // ミナリの足元とぶつかるので、地は敷かずに光だまりの上へ重ねる
+  if(blink(2)) textC("にげる！", VH-FOOT_H-38, PAL.d5, 1, J28);
   drawChrome();
 }
 /** 画面のあいだの一枚 */
