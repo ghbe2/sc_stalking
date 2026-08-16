@@ -63,7 +63,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0816E";
+const BUILD = "0816F";
 
 /* ============================================================
    CONFIG
@@ -72,7 +72,8 @@ const CONFIG = {
   lanes: 4,
   speed: 68,          // 一定。ミナリの走る速さは変わらない
   // 1回の路地で1〜3分もたせる。粘れる人ほど長く、ステージが上がるほど短くなる
-  ramp: 105,          // 秒。人混み・敵の速さ・点の入りが最大になるまで
+  ramp: 76,           // 秒。人混み・敵の速さ・点の入りが最大になるまで。
+                      // 105秒は長すぎて、粘っても手応えが変わらなかった
   watchRamp: 110,     // 秒。監視はこれより速く増える＝路地を終わらせるのは監視の役
 
   // 同じ画面に戻ってくるたびに、坂がこの倍率できつくなる。
@@ -188,7 +189,7 @@ const CONFIG = {
     // 潜るほどトウカは耳を澄ます。気配の引きが遅くなり、いつかは追いつかれる
     noiseMax: 100, noiseDecayFar: 6.0, noiseDecayNear: 1.8,
 
-    ramp: 1350,             // この距離をかけて下水そのものが難しくなる
+    ramp: 980,              // この距離をかけて下水そのものが難しくなる（1350は長かった）
     speedUp: 0.55,          // 最奥での速度の伸び
   },
 
@@ -3880,11 +3881,13 @@ const SFX = (()=>{
   const AMBI = {
     // 落ちている音。雑音の風ではなく、**続く笛の音**にする。
     // 頭で一度だけ鳴らすのではなく、落ちているあいだ「ぴゅ〜」と伸ばす
-    wind:  { tone: 1250, to: 520, vib: 26, vol: 0.085 },
+    /* 音量は master(0.18) を通ったあとの値で考えること。
+       0.085 だと SE の 1/5 以下になって、鳴っているのに聞こえなかった */
+    wind:  { tone: 1250, to: 520, vib: 26, vol: 0.40 },
     // 縦坑にこもる音
-    pipe:  { lp: 320,  vol: 0.040, wob: 0.10 },
+    pipe:  { lp: 320,  vol: 0.18,  wob: 0.10 },
     // 登っている音。手をかけ続けているあいだ鳴らす
-    climb: { lp: 700,  vol: 0.085, wob: 0.9  },
+    climb: { lp: 700,  vol: 0.36,  wob: 0.9  },
   };
   const FOR_AMBI = { falling:"wind", climb:"climb" };
   const live = {};
@@ -4012,7 +4015,7 @@ const BGM = (()=>{
   /* 落下と昇りは無音。ここに曲を割り当てると、5秒の落下と15秒の昇りを挟むたびに
      切り替えが起きて、常に2曲が混ざって聞こえる */
   const FOR_SCENE = { play:"alley", sewer:"sewer", touka:"touka" };
-  const VOL = 0.42, FADE = 0.8;
+  const VOL = 0.42, FADE = 1.2;
   const el = {}, pending = {};
   let woke = false, cur = null;
 
@@ -4031,7 +4034,9 @@ const BGM = (()=>{
     const a = el[name];
     if(!a) return;
     a.volume = 0;
-    const stop = ()=>{ try{ a.pause(); a.currentTime = a.currentTime; }catch(e){} };
+    /* **頭に巻き戻す。** 続きから鳴らすと、その画面に入り直したときに
+       曲の途中から急に始まって、繋がりが読めない */
+    const stop = ()=>{ try{ a.pause(); a.currentTime = 0; }catch(e){} };
     if(pending[name] && pending[name].then) pending[name].then(stop, stop);
     stop();
   }
@@ -4047,6 +4052,7 @@ const BGM = (()=>{
         if(want){
           const a = get(want);
           a.volume = 0;
+          try{ a.currentTime = 0; }catch(e){}     // 必ず頭から
           pending[want] = a.play();
           if(pending[want] && pending[want].catch) pending[want].catch(()=>{});
         }
@@ -4069,7 +4075,8 @@ const BGM = (()=>{
     /** 最初の入力で起こす。ブラウザは触られるまで鳴らせない */
     wake(){ woke = true; },
     /** いま何がどれだけ鳴っているか。DEBUG 表示と動作確認に使う */
-    state(){ return Object.keys(el).map(n => n+" "+el[n].volume.toFixed(2)+(el[n].paused?"-":"+")).join(" "); },
+    state(){ return Object.keys(el).map(n =>
+      n+" "+el[n].volume.toFixed(2)+(el[n].paused?"-":"+")+"@"+el[n].currentTime.toFixed(1)).join(" "); },
     /** 鳴っている本数。2以上なら重なっている */
     playing(){ return Object.keys(el).filter(n => !el[n].paused && el[n].volume > 0.01).length; },
     stop(){ cur=null; for(const n in el) hardStop(n); },
@@ -4215,7 +4222,14 @@ function holdRepeat(dt){
   if(n>touch.reps){ touch.reps=n; edge[touch.dir<0?"left":"right"]=true; }
 }
 const cv=document.getElementById("screen");
-cv.addEventListener("pointerdown",e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e);});
+/* 指を追い続けるための capture は、**失敗しても指の入力は捨てない**。
+   前の指の capture が残っている等でここが例外を投げると、そのタップは
+   まるごと無かったことになる。タイトルで「押しても始まらない」が起きる */
+cv.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+  onDown(e);
+});
 cv.addEventListener("pointermove",e=>{e.preventDefault();onMove(e);});
 cv.addEventListener("pointerup",e=>{e.preventDefault();onUp();});
 cv.addEventListener("pointercancel",onUp);
@@ -4854,9 +4868,14 @@ function update(dt){
     /* 揺れはここでも冷ます。捕まった瞬間の揺れを積んだまま抜けるので、
        減らす場所が無いと結果の画面もタイトルも揺れっぱなしになる */
     S.shake=Math.max(0,S.shake-dt*8);
-    if(edge.start && S.screenT>0.8){
-      S.scene = S.scene==="over" ? "title" : S.scene; S.screenT=0; }
-    S.screenT+=dt; if(S.scene==="title"&&edge.start&&S.screenT>0.3) startRun();
+    S.screenT+=dt;
+    /* タップの拾い方。以前は結果画面用の分岐がタイトルでも走って、
+       **押すたびに S.screenT を0に戻していた**。戻された直後の同じ枠で
+       「0.3秒以上経っていること」を見るので、条件が立たない。
+       押しても始まらない、たまに始まる、という当たり外れになっていた */
+    if(!edge.start || S.screenT<0.3) return;
+    if(S.scene==="over"){ S.scene="title"; S.screenT=0; return; }
+    startRun();
     return; }
   // 監視モニタの状態。見張られていれば SEARCHING、捕まれば LOCKED
   S.watched = (S.scene==="play" && S.watches.length>0) || (S.scene==="sewer" && S.swNoise>40);
@@ -6171,7 +6190,7 @@ function drawBrief(){
   /* 説明はぎゅう詰めにしない。**残りの高さを要素の数で割って**、
      等間隔に散らす。詰めると読まれないし、寄せると余白が偏る */
   const HGT={ pair:104, cam:96, ladder:78, hole:62, wave:50, food:38, amida:80,
-              front:108, over:84,
+              front:108, over:4,
               tap:70, hold:70, tapx:70, net:40, time:56, swarm:40 };
   const items=["a","b","c"].map(k=>B[k]).filter(Boolean);
   const areaTop=by+64, areaBot=VH-FOOT_H-40;
@@ -6266,11 +6285,13 @@ function briefFig(kind, cx, y){
     /* 矢印ではなく、**避けている絵そのもの**を並べる。
        中央に正面、左右に飛んでいる姿。何をするのかが絵だけで決まる。
        本編と同じ絵は大きすぎるので、説明用に縮めた版を使う */
+    /* **動かさない。** 説明の絵が歩いていると、そこへ目が行って
+       文が読まれない。A の1枚だけで足りる */
     blit(SPR.dodgeLmini, cx-92, y+96);
-    blit(anim(SPR.frontMiniA, SPR.frontMiniB, 6), cx, y+100);
+    blit(SPR.frontMiniA, cx, y+100);
     blit(SPR.dodgeRmini, cx+92, y+96);
   } else if(kind==="over"){
-    blitTint(SPR.netNear, cx, y+80, W2);
+    // 網の絵は出さない。ここで言いたいのは「捕まると終わる」ことだけ
   } else if(kind==="tap" || kind==="hold" || kind==="tapx"){
     // ミナリと、その左右の矢印。落下だけは落ちている絵にする
     blit(kind==="hold" ? SPR.minariFallA : SPR.minariBackA, cx, y+50);
