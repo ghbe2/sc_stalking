@@ -31,43 +31,52 @@ BG_TOL = 34
 
 # 実機（縦持ちスマホ）は仮想 300x640 になる。レーン幅は約75px。
 # 監視モニタの映像なので、絵は明暗の5段だけで描く。
-# name: (ファイル, 幅, 高さ, 使わない, 太らせ, 明るさの下駄)
+# name: (ファイル, 幅, 高さ, 使わない, 太らせ, 明るさの下駄, ひと組の名前)
+#
+# **ひと組の名前**が同じ絵は、明暗の幅をまとめて測る。
+# 段の割り当ては「その絵の中での最も暗い/明るい点」を基準にしているので、
+# コマごとに別々に測ると、腕の位置が変わって最暗点がずれただけで
+# 全体の段がずれる。顔の色がコマごとに変わって見えるのはこれが原因。
+# 元絵の色が揃っていても起きる。
 SPRITES = [
     # ── ミナリ ──────────────────────────────────────────────
-    ("minariBackA",  "characters/minari_back_run_A.png",   44, 52, 0, 0, 0.22),
-    ("minariBackB",  "characters/minari_back_run_B.png",   44, 52, 0, 0, 0.22),
+    ("minariBackA",  "characters/minari_back_run_A.png",   44, 52, 0, 0, 0.22, "mBack"),
+    ("minariBackB",  "characters/minari_back_run_B.png",   44, 52, 0, 0, 0.22, "mBack"),
     # トウカ画面はミナリが主役。画面の4割強を占める。
     # この背丈がトウカ画面の遠近の基準で、地平線も他のキャラの立ち位置も
     # ここから逆算される。変えるときは drawTouka の前提も変わる
-    ("minariFrontA", "characters/minari_front_run_A2.png",  252, 280, 0, 0, 0.22),
-    ("minariFrontB", "characters/minari_front_run_B2.png",  252, 280, 0, 0, 0.22),
-    ("minariDodgeL", "characters/minari_dodge_left2.png",   280, 260, 0, 0, 0.22),
-    ("minariDodgeR", "characters/minari_dodge_right2.png",  280, 260, 0, 0, 0.22),
+    ("minariFrontA", "characters/minari_front_run_A2.png",  252, 280, 0, 0, 0.22, "mFront"),
+    ("minariFrontB", "characters/minari_front_run_B2.png",  252, 280, 0, 0, 0.22, "mFront"),
+    ("minariDodgeL", "characters/minari_dodge_left2.png",   280, 260, 0, 0, 0.22, "mFront"),
+    ("minariDodgeR", "characters/minari_dodge_right2.png",  280, 260, 0, 0, 0.22, "mFront"),
     # 説明の一枚に載せる小さい版。本編の絵は大きすぎて収まらない
-    ("frontMiniA",   "characters/minari_front_run_A2.png",   76, 84, 0, 0, 0.22),
-    ("frontMiniB",   "characters/minari_front_run_B2.png",   76, 84, 0, 0, 0.22),
-    ("dodgeLmini",   "characters/minari_dodge_left2.png",    84, 78, 0, 0, 0.22),
-    ("dodgeRmini",   "characters/minari_dodge_right2.png",   84, 78, 0, 0, 0.22),
+    ("frontMiniA",   "characters/minari_front_run_A2.png",   76, 84, 0, 0, 0.22, "mMini"),
+    ("frontMiniB",   "characters/minari_front_run_B2.png",   76, 84, 0, 0, 0.22, "mMini"),
+    ("dodgeLmini",   "characters/minari_dodge_left2.png",    84, 78, 0, 0, 0.22, "mMini"),
+    ("dodgeRmini",   "characters/minari_dodge_right2.png",   84, 78, 0, 0, 0.22, "mMini"),
     # 下水は横向き。立ち60px・伏せ32pxの当たり判定に合わせる
-    ("minariSideA",  "characters/minari_side_run_A2.png",   52, 60, 0, 0, 0.22),
-    ("minariSideB",  "characters/minari_side_run_B2.png",   52, 60, 0, 0, 0.22),
-    ("minariCrouch", "characters/minari_crouch2.png",       60, 32, 0, 0, 0.42),
-    ("minariFallA",  "characters/minari_fall_A.png",       64, 68, 0, 0, 0.22),
-    ("minariFallB",  "characters/minari_fall_B.png",       64, 68, 0, 0, 0.22),
-    ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22),
-    ("minariClimbB", "characters/minari_ladder_climb_B.png", 40, 52, 0, 0, 0.22),
+    ("minariSideA",  "characters/minari_side_run_A2.png",   52, 60, 0, 0, 0.22, "mSide"),
+    ("minariSideB",  "characters/minari_side_run_B2.png",   52, 60, 0, 0, 0.22, "mSide"),
+    ("minariCrouch", "characters/minari_crouch2.png",       60, 32, 0, 0, 0.42, "mSide"),
+    ("minariFallA",  "characters/minari_fall_A.png",       64, 68, 0, 0, 0.22, "mFall"),
+    ("minariFallB",  "characters/minari_fall_B.png",       64, 68, 0, 0, 0.22, "mFall"),
+    ("minariClimbA", "characters/minari_ladder_climb_A.png", 40, 52, 0, 0, 0.22, "mClimb"),
+    ("minariClimbB", "characters/minari_ladder_climb_B.png", 40, 52, 0, 0, 0.22, "mClimb"),
     # ── トウカと部下。背丈比 ミナリ1.0 / トウカ1.35 / 部下1.05 ──
-    # 4枚で1周する（A→A′→B→B′）。2枚だと動きが硬い
-    ("toukaA",       "characters/touka_approach_A2.png",        108, 148, 0, 0, 0.10),
-    ("toukaA2",      "characters/touka_approach_A_prime2.png",  108, 148, 0, 0, 0.10),
-    ("toukaB",       "characters/touka_approach_B2.png",        108, 148, 0, 0, 0.10),
-    ("toukaB2",      "characters/touka_approach_B_prime2.png",  108, 148, 0, 0, 0.10),
-    ("lampReady",    "characters/amaru_net_ready.png",      88, 116, 0, 0, 0.10),
-    ("lampThrow",    "characters/amaru_net_throw.png",     108, 116, 0, 0, 0.10),
+    # 4枚で1周する（A→A′→B→B′）。2枚だと動きが硬い。
+    # 下駄は 0.10 ではなく 0.02。顔の明るさがちょうど段の境目に載っていて、
+    # コマごとに段をまたいでちらついていた。下駄を振って測ったところ、
+    # 0.02 と 0.22 で顔が1段に収まる。暗いほうを採る（追う側なので）
+    ("toukaA",       "characters/touka_approach_A2.png",        108, 148, 0, 0, 0.02, "touka"),
+    ("toukaA2",      "characters/touka_approach_A_prime2.png",  108, 148, 0, 0, 0.02, "touka"),
+    ("toukaB",       "characters/touka_approach_B2.png",        108, 148, 0, 0, 0.02, "touka"),
+    ("toukaB2",      "characters/touka_approach_B_prime2.png",  108, 148, 0, 0, 0.02, "touka"),
+    ("lampReady",    "characters/amaru_net_ready.png",      88, 116, 0, 0, 0.10, "lamp"),
+    ("lampThrow",    "characters/amaru_net_throw.png",     108, 116, 0, 0, 0.10, "lamp"),
     # 網は奥から手前へ。大きさの段で近づくのを見せる
-    ("netFar",       "characters/amaru_cast_net.png",      28, 22, 0, 3, 0.30),
-    ("netMid",       "characters/amaru_cast_net_wide.png", 60, 56, 0, 2, 0.30),
-    ("netNear",      "characters/amaru_cast_net_wide.png", 112, 104, 0, 1, 0.30),
+    ("netFar",       "characters/amaru_cast_net.png",      28, 22, 0, 3, 0.30, "net"),
+    ("netMid",       "characters/amaru_cast_net_wide.png", 60, 56, 0, 2, 0.30, "net"),
+    ("netNear",      "characters/amaru_cast_net_wide.png", 112, 104, 0, 1, 0.30, "net"),
     # ── 路地の通行人。色を持たないので、見分けはシルエットが担う ──
     ("man",          "characters/npc_boar_man_walk_front.png",  30, 44, 0, 0, 0.05),
     ("woman",        "characters/npc_fox_woman_cross.png",      32, 40, 0, 0, 0.05),
@@ -153,6 +162,24 @@ def luma(rgb):
     return (rgb[0]*0.30 + rgb[1]*0.59 + rgb[2]*0.11)/255
 
 
+# ひと組のうち、**明るさの平均まで揃える**組。
+# 段は5つしかないので、コマ間で平均が1%ずれただけでも、境目に載っている
+# 面（トウカの顔がそう）は段をまたいで、色がころころ変わって見える。
+# 網だけは除く。奥・中・手前で太らせ方が違い、平均がずれるのが正しいため
+MATCH_MEAN = {"mBack", "mFront", "mMini", "mSide", "mFall", "mClimb", "touka", "lamp"}
+
+
+def stats(q, mask, W, H):
+    """不透明な部分の、明るさの平均とばらつき"""
+    vs = [luma(q.getpixel((x, y)))
+          for y in range(H) for x in range(W) if mask.getpixel((x, y))]
+    if not vs:
+        return 0.0, 1.0
+    m = sum(vs)/len(vs)
+    sd = (sum((v-m)**2 for v in vs)/len(vs)) ** 0.5
+    return m, max(1e-6, sd)
+
+
 def to_ramp(v, lo, hi, boost=0.0):
     """明るさを段へ落とす。
 
@@ -166,7 +193,31 @@ def to_ramp(v, lo, hi, boost=0.0):
     return RAMP[min(len(RAMP)-1, max(0, int(t*len(RAMP)*0.999)))]
 
 
-def build(name, path, W, H, ncol, bold=0, boost=0.0):
+_PREP = {}
+
+
+def prep(path, W, H, bold=0):
+    """絵を枠に収めて二値の縁にし、明暗の幅を測るところまで。
+
+    ここで止めておくと、**測った幅をひと組でまとめてから**段へ落とせる。
+    重いのは縮小なので、同じ絵を2度読まないよう覚えておく
+    """
+    key = (path, W, H, bold)
+    if key in _PREP:
+        return _PREP[key]
+    q, mask, lo, hi = _shrink(path, W, H, bold)
+    _PREP[key] = (q, mask, lo, hi)
+    return _PREP[key]
+
+
+def build(name, path, W, H, ncol, bold=0, boost=0.0, group=None, rng=None, fit=None):
+    q, mask, lo, hi = prep(path, W, H, bold)
+    if rng:
+        lo, hi = rng
+    return emit(name, q, mask, W, H, lo, hi, boost, fit)
+
+
+def _shrink(path, W, H, bold=0):
     im = Image.open(os.path.join(IMG, path)).convert("RGBA")
     im = strip_baked_bg(im)
     bb = main_bbox(im)
@@ -234,6 +285,22 @@ def build(name, path, W, H, ncol, bold=0, boost=0.0):
         for x, y in drop:
             m[x, y] = 0
 
+    return q, mask, lo, hi
+
+
+def emit(name, q, mask, W, H, lo, hi, boost, fit=None):
+    """測った幅を使って、明るさを段へ落とす。
+
+    fit は (このコマの平均, ばらつき, 組の平均, 組のばらつき)。
+    コマの明るさの分布を組の分布へ重ねてから段に落とす。
+    段は5つしかないので、境目に載っている面（トウカの顔がそう）は
+    分布がわずかにずれるだけで段をまたぎ、色がころころ変わって見える
+    """
+    if fit:
+        m0, s0, m1, s1 = fit
+        adj = lambda v: (v-m0)*(s1/s0) + m1
+    else:
+        adj = lambda v: v
     pal, order = {}, []
     rows = []
     for y in range(H):
@@ -242,7 +309,7 @@ def build(name, path, W, H, ncol, bold=0, boost=0.0):
             if not mask.getpixel((x, y)):
                 line.append(".")
                 continue
-            key = to_ramp(luma(q.getpixel((x, y))), lo, hi, boost)
+            key = to_ramp(adj(luma(q.getpixel((x, y)))), lo, hi, boost)
             if key not in pal:
                 pal[key] = CHARS[len(order)]
                 order.append(key)
@@ -252,7 +319,40 @@ def build(name, path, W, H, ncol, bold=0, boost=0.0):
 
 
 def main():
-    out = [build(*s) for s in SPRITES]
+    """ひと組ずつ明暗の幅をまとめてから、段へ落とす。
+
+    コマごとに測ると、腕の位置が変わって最暗点がずれただけで全体の段が動く。
+    見た目には**顔の色がコマごとに変わる**ちらつきになる。
+    組の全コマの最暗〜最明を取って、同じ幅を全コマに使う。
+    """
+    span, means = {}, {}
+    for s in SPRITES:
+        g = s[7] if len(s) > 7 else None
+        if not g:
+            continue
+        q, m, lo, hi = prep(s[1], s[2], s[3], s[5])
+        a, b = span.get(g, (1.0, 0.0))
+        span[g] = (min(a, lo), max(b, hi))
+        means.setdefault(g, {})[s[0]] = stats(q, m, s[2], s[3])
+
+    out = []
+    for s in SPRITES:
+        g = s[7] if len(s) > 7 else None
+        fit = None
+        if g in MATCH_MEAN:
+            mm = means[g]
+            gm = sum(v[0] for v in mm.values())/len(mm)
+            gs = sum(v[1] for v in mm.values())/len(mm)
+            fit = (mm[s[0]][0], mm[s[0]][1], gm, gs)
+        out.append(build(*s[:7], group=g, rng=span.get(g), fit=fit))
+
+    for g in sorted(span):
+        lo, hi = span[g]
+        mm = means[g]
+        note = "" if g not in MATCH_MEAN else \
+            "  平均 %.4f〜%.4f を揃えた" % (min(v[0] for v in mm.values()),
+                                             max(v[0] for v in mm.values()))
+        print("  %-7s 明暗の幅 %.3f〜%.3f%s" % (g, lo, hi, note))
 
     js = ["const SPR = {"]
     for s in out:
