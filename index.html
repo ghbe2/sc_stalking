@@ -39,7 +39,7 @@ body{user-select:none;-webkit-user-select:none;overscroll-behavior:none;touch-ac
 <script>
 "use strict";
 /* 実機で「新しい版を見ているか」を確かめるための印。更新のたびに上げる */
-const BUILD = "0817D";
+const BUILD = "0817E";
 
 /* ============================================================
    CONFIG
@@ -3865,8 +3865,14 @@ const SFX = (()=>{
     if(!AC) return null;
     ac = new AC();
     master = ac.createGain();
-    master.gain.value = 0.18;                 // 音量はここ1か所で決める
-    master.connect(ac.destination);
+    /* 0.18 だった。曲は 0.42 で鳴っているので、SE は曲の1割ほどしかなく、
+       **曲が無い落下と昇りでは画面が無音に聞こえていた**。
+       上げるぶん、重なったときに割れないよう頭を押さえる器を挟む */
+    master.gain.value = 0.55;
+    const limit = ac.createDynamicsCompressor();
+    limit.threshold.value = -6; limit.knee.value = 6;
+    limit.ratio.value = 12; limit.attack.value = 0.003; limit.release.value = 0.12;
+    master.connect(limit); limit.connect(ac.destination);
     return ac;
   };
   /** 矩形波を1音。周波数は from→to へ滑らせる */
@@ -4006,7 +4012,8 @@ const SFX = (()=>{
     over:    ()=>{ [440,330,247,165].forEach((f,i)=>tone(f,f,0.20,{vol:0.55,delay:i*0.16,type:"triangle"})); },
     clear:   ()=>{ [523,659,784,1047].forEach((f,i)=>tone(f,f,0.11,{vol:0.55,delay:i*0.08})); },
     stage:   ()=>{ [784,1047].forEach((f,i)=>tone(f,f,0.10,{vol:0.5,delay:i*0.09})); },
-    rung:    ()=>{ tone(1400,900,0.04,{vol:0.28}); noise(0.04,{vol:0.16,hp:3000}); },
+    // 昇りはこれ1つで「てちてち」を作る。持続音をやめたぶん前へ出す
+    rung:    ()=>{ tone(1400,900,0.05,{vol:0.42}); noise(0.045,{vol:0.24,hp:3000}); },
     wall:    ()=> noise(0.03,{vol:0.10,lp:2200}),
   };
   return {
@@ -6073,7 +6080,9 @@ function drawSewerScene(){
   if(!(S.invuln>0 && Math.floor(S.t*14)%2===0)) drawMinariSide(pxs,by,crouch);
   // 溜め
   if(S.swCharge>0){
-    const k=S.swCharge/C.maxCharge, w=16, h=crouch?C.crouchH:C.standH;
+    // 幅は**ミナリの身幅そのもの**。16px 固定だと本人と関係ない棒に見えていた
+    const spr = crouch ? SPR.minariCrouch : SPR.minariSideA;
+    const k=S.swCharge/C.maxCharge, w=spr.px[0].length, h=crouch?C.crouchH:C.standH;
     px(pxs-w/2-1, by-h-15, w+2, 5, PAL.bg);
     px(pxs-w/2,   by-h-14, Math.round(w*k), 3, k>=0.995?PAL.warn:PAL.ink);
   }
